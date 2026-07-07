@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   addChildToPath,
   buildJsonTree,
@@ -19,6 +19,8 @@ import {
   updateValueAtPath,
 } from "@/app/lib/json-model";
 
+type Language = "en" | "ja";
+
 const SAMPLE_JSON: JsonObject = {
   name: "Sample project",
   version: 1,
@@ -30,8 +32,103 @@ const SAMPLE_JSON: JsonObject = {
   },
 };
 
+const translations = {
+  en: {
+    language: "Language",
+    switchToEnglish: "English",
+    switchToJapanese: "日本語",
+    title: "Browser-based JSON editor",
+    subtitle: "Load JSON from a file or paste it directly, edit the structure, and export a formatted document.",
+    loadFile: "Load file",
+    applyJson: "Apply JSON",
+    downloadJson: "Download JSON",
+    copyJson: "Copy JSON",
+    jsonInput: "JSON input",
+    jsonInputHint: "Paste text or load a file, then apply it to the editor.",
+    treeView: "Tree view",
+    textView: "Text view",
+    selectedNode: "Selected node",
+    selectedNodeHint: "Inspect or modify the currently chosen value.",
+    path: "Path",
+    root: "root",
+    type: "Type",
+    value: "Value",
+    applyValue: "Apply value",
+    duplicate: "Duplicate",
+    delete: "Delete",
+    editNode: "Edit node",
+    renameKey: "Rename key",
+    addChild: "Add child",
+    key: "Key",
+    addChildButton: "Add child to selected node",
+    nodeTypes: {
+      string: "string",
+      number: "number",
+      boolean: "boolean",
+      null: "null",
+      object: "object",
+      array: "array",
+    },
+    errors: {
+      invalidJson: "Invalid JSON",
+      clipboard: "Clipboard access is unavailable in this browser.",
+      download: "Unable to download JSON",
+      updateValue: "Unable to update value",
+      renameKey: "Unable to rename key",
+    },
+  },
+  ja: {
+    language: "表示言語",
+    switchToEnglish: "English",
+    switchToJapanese: "日本語",
+    title: "ブラウザ版 JSON エディタ",
+    subtitle: "JSON を読み込んで編集し、整形した内容をそのまま書き出せます。",
+    loadFile: "ファイルを読み込む",
+    applyJson: "JSON を適用",
+    downloadJson: "JSON をダウンロード",
+    copyJson: "JSON をコピー",
+    jsonInput: "JSON 入力",
+    jsonInputHint: "テキストを貼り付けるかファイルを読み込んで、エディタに反映してください。",
+    treeView: "ツリー表示",
+    textView: "テキスト表示",
+    selectedNode: "選択中のノード",
+    selectedNodeHint: "選択した値を確認・編集できます。",
+    path: "パス",
+    root: "ルート",
+    type: "型",
+    value: "値",
+    applyValue: "値を適用",
+    duplicate: "複製",
+    delete: "削除",
+    editNode: "ノードを編集",
+    renameKey: "キー名を変更",
+    addChild: "子要素を追加",
+    key: "キー",
+    addChildButton: "選択したノードに子要素を追加",
+    nodeTypes: {
+      string: "文字列",
+      number: "数値",
+      boolean: "真偽値",
+      null: "null",
+      object: "オブジェクト",
+      array: "配列",
+    },
+    errors: {
+      invalidJson: "JSON の形式が正しくありません",
+      clipboard: "このブラウザではクリップボードを利用できません。",
+      download: "JSON をダウンロードできませんでした",
+      updateValue: "値を更新できませんでした",
+      renameKey: "キー名を変更できませんでした",
+    },
+  },
+} as const;
+
 function readFromFile(file: File): Promise<string> {
   return file.text();
+}
+
+function getTypeLabel(type: JsonNodeType, language: Language) {
+  return translations[language].nodeTypes[type];
 }
 
 export function JsonEditor() {
@@ -44,7 +141,20 @@ export function JsonEditor() {
   const [newType, setNewType] = useState<JsonNodeType>("string");
   const [editValue, setEditValue] = useState("");
   const [renameKey, setRenameKey] = useState("");
+  const [language, setLanguage] = useState<Language>("en");
 
+  useEffect(() => {
+    const savedLanguage = window.localStorage.getItem("json-editor-language");
+    if (savedLanguage === "en" || savedLanguage === "ja") {
+      setLanguage(savedLanguage);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("json-editor-language", language);
+  }, [language]);
+
+  const t = translations[language];
   const tree = useMemo(() => buildJsonTree(data), [data]);
 
   const selectedNode = useMemo(() => {
@@ -66,6 +176,7 @@ export function JsonEditor() {
   }, [data, selectedPath]);
 
   const selectedType = selectedNode?.type ?? "object";
+  const selectedTypeLabel = getTypeLabel(selectedType, language);
 
   const applyData = (nextData: JsonValue, nextText?: string) => {
     setData(nextData);
@@ -79,8 +190,8 @@ export function JsonEditor() {
       applyData(parsed, jsonText);
       setSelectedPath([]);
       setActiveTab("tree");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid JSON");
+    } catch {
+      setError(t.errors.invalidJson);
     }
   };
 
@@ -93,8 +204,8 @@ export function JsonEditor() {
       applyData(parsed, text);
       setSelectedPath([]);
       setActiveTab("tree");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid JSON");
+    } catch {
+      setError(t.errors.invalidJson);
     }
   };
 
@@ -108,8 +219,8 @@ export function JsonEditor() {
       anchor.download = "edited.json";
       anchor.click();
       URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to download JSON");
+    } catch {
+      setError(t.errors.download);
     }
   };
 
@@ -117,7 +228,7 @@ export function JsonEditor() {
     try {
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
     } catch {
-      setError("Clipboard access is unavailable in this browser.");
+      setError(t.errors.clipboard);
     }
   };
 
@@ -128,8 +239,8 @@ export function JsonEditor() {
       const nextData = updateValueAtPath(data, selectedPath, nextValue);
       applyData(nextData);
       setEditValue(formatJsonValue(nextValue));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update value");
+    } catch {
+      setError(t.errors.updateValue);
     }
   };
 
@@ -158,8 +269,8 @@ export function JsonEditor() {
       const nextData = renamePropertyAtPath(data, selectedPath, renameKey.trim());
       applyData(nextData);
       setRenameKey("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to rename key");
+    } catch {
+      setError(t.errors.renameKey);
     }
   };
 
@@ -176,7 +287,7 @@ export function JsonEditor() {
 
   const renderNode = (node: JsonTreeNode): ReactNode => {
     const isSelected = selectedPath.join(".") === node.id;
-    const label = node.key === "root" ? "root" : node.key;
+    const label = node.key === "root" ? t.root : node.key;
     return (
       <div key={node.id} className="ml-2">
         <button
@@ -199,24 +310,32 @@ export function JsonEditor() {
           <div className="flex" style={{ justifyContent: "space-between", alignItems: "flex-end", gap: "1rem", flexWrap: "wrap" }}>
             <div>
               <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">edit_json_tool</p>
-              <h1 className="text-3xl font-semibold">Browser-based JSON editor</h1>
+              <h1 className="text-3xl font-semibold">{t.title}</h1>
               <p className="mt-2 text-sm text-slate-600" style={{ maxWidth: "40rem" }}>
-                Load JSON from a file or paste it directly, edit the structure, and export a formatted document.
+                {t.subtitle}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2 rounded-lg border border-slate-200 bg-white p-1">
+                <button type="button" onClick={() => setLanguage("en")} className={language === "en" ? "button-primary" : "button-secondary"}>
+                  {t.switchToEnglish}
+                </button>
+                <button type="button" onClick={() => setLanguage("ja")} className={language === "ja" ? "button-primary" : "button-secondary"}>
+                  {t.switchToJapanese}
+                </button>
+              </div>
               <label className="button-secondary" style={{ padding: "0.65rem 0.9rem" }}>
-                Load file
+                {t.loadFile}
                 <input type="file" accept=".json,application/json" onChange={handleFileSelect} style={{ marginLeft: "0.5rem" }} />
               </label>
               <button type="button" onClick={handleLoadJson} className="button-primary">
-                Apply JSON
+                {t.applyJson}
               </button>
               <button type="button" onClick={handleDownload} className="button-secondary">
-                Download JSON
+                {t.downloadJson}
               </button>
               <button type="button" onClick={handleCopy} className="button-secondary">
-                Copy JSON
+                {t.copyJson}
               </button>
             </div>
           </div>
@@ -226,15 +345,15 @@ export function JsonEditor() {
           <div className="card p-4">
             <div className="flex justify-between items-center" style={{ marginBottom: "0.75rem" }}>
               <div>
-                <h2 className="text-lg font-semibold">JSON input</h2>
-                <p className="mt-1 text-sm text-slate-600">Paste text or load a file, then apply it to the editor.</p>
+                <h2 className="text-lg font-semibold">{t.jsonInput}</h2>
+                <p className="mt-1 text-sm text-slate-600">{t.jsonInputHint}</p>
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setActiveTab("tree")} className={activeTab === "tree" ? "button-primary" : "button-secondary"}>
-                  Tree view
+                  {t.treeView}
                 </button>
                 <button type="button" onClick={() => setActiveTab("text")} className={activeTab === "text" ? "button-primary" : "button-secondary"}>
-                  Text view
+                  {t.textView}
                 </button>
               </div>
             </div>
@@ -249,70 +368,70 @@ export function JsonEditor() {
 
           <div className="flex" style={{ flexDirection: "column", gap: "1rem" }}>
             <div className="card p-4">
-              <h2 className="text-lg font-semibold">Selected node</h2>
-              <p className="mt-1 text-sm text-slate-600">Inspect or modify the currently chosen value.</p>
+              <h2 className="text-lg font-semibold">{t.selectedNode}</h2>
+              <p className="mt-1 text-sm text-slate-600">{t.selectedNodeHint}</p>
               <div className="mt-4" style={{ display: "grid", gap: "0.75rem" }}>
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Path</label>
+                  <label className="text-sm font-medium text-slate-700">{t.path}</label>
                   <div className="mt-1 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
-                    {selectedPath.length === 0 ? "root" : selectedPath.join(" / ")}
+                    {selectedPath.length === 0 ? t.root : selectedPath.join(" / ")}
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Type</label>
-                  <div className="mt-1 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{selectedType}</div>
+                  <label className="text-sm font-medium text-slate-700">{t.type}</label>
+                  <div className="mt-1 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{selectedTypeLabel}</div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Value</label>
+                  <label className="text-sm font-medium text-slate-700">{t.value}</label>
                   <textarea value={editValue} onChange={(event) => setEditValue(event.target.value)} className="input-field mt-1" style={{ minHeight: "6rem", fontFamily: "monospace" }} />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={handleApplyValue} className="button-primary">
-                    Apply value
+                    {t.applyValue}
                   </button>
                   <button type="button" onClick={handleDuplicateSelected} className="button-secondary">
-                    Duplicate
+                    {t.duplicate}
                   </button>
                   <button type="button" onClick={handleRemoveSelected} className="button-danger">
-                    Delete
+                    {t.delete}
                   </button>
                 </div>
               </div>
             </div>
 
             <div className="card p-4">
-              <h2 className="text-lg font-semibold">Edit node</h2>
+              <h2 className="text-lg font-semibold">{t.editNode}</h2>
               <div className="mt-3" style={{ display: "grid", gap: "0.75rem" }}>
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Rename key</label>
+                  <label className="text-sm font-medium text-slate-700">{t.renameKey}</label>
                   <input value={renameKey} onChange={(event) => setRenameKey(event.target.value)} className="input-field mt-1" />
                 </div>
                 <button type="button" onClick={handleRenameKey} className="button-secondary">
-                  Rename key
+                  {t.renameKey}
                 </button>
               </div>
             </div>
 
             <div className="card p-4">
-              <h2 className="text-lg font-semibold">Add child</h2>
+              <h2 className="text-lg font-semibold">{t.addChild}</h2>
               <div className="mt-3" style={{ display: "grid", gap: "0.75rem" }}>
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Key</label>
+                  <label className="text-sm font-medium text-slate-700">{t.key}</label>
                   <input value={newKey} onChange={(event) => setNewKey(event.target.value)} className="input-field mt-1" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-slate-700">Type</label>
+                  <label className="text-sm font-medium text-slate-700">{t.type}</label>
                   <select value={newType} onChange={(event) => setNewType(event.target.value as JsonNodeType)} className="input-field mt-1">
-                    <option value="string">string</option>
-                    <option value="number">number</option>
-                    <option value="boolean">boolean</option>
-                    <option value="null">null</option>
-                    <option value="object">object</option>
-                    <option value="array">array</option>
+                    <option value="string">{t.nodeTypes.string}</option>
+                    <option value="number">{t.nodeTypes.number}</option>
+                    <option value="boolean">{t.nodeTypes.boolean}</option>
+                    <option value="null">{t.nodeTypes.null}</option>
+                    <option value="object">{t.nodeTypes.object}</option>
+                    <option value="array">{t.nodeTypes.array}</option>
                   </select>
                 </div>
                 <button type="button" onClick={handleAddChild} className="button-primary">
-                  Add child to selected node
+                  {t.addChildButton}
                 </button>
               </div>
             </div>
