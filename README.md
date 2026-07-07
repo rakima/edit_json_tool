@@ -3,6 +3,10 @@
 This is the browser-based version of edit_json_tool.
 The desktop version is available as edit_json_tool_desktop.
 
+## Demo URL
+
+https://rakima.github.io/edit_json_tool/
+
 ## Overview
 
 edit_json_tool is a lightweight browser-based JSON editor for loading, editing, and exporting JSON files without requiring a server. It is inspired by the desktop editor workflow and focuses on a simple, mouse-friendly tree-based experience.
@@ -43,14 +47,24 @@ npm run start
 npm run lint
 ```
 
-## GitHub Pages
+## GitHub Pages deployment
 
-The app is configured for static export, which makes it suitable for GitHub Pages deployment.
+The app is configured for static export and can be published to GitHub Pages automatically.
 
-To publish to GitHub Pages:
+### Automatic deployment with GitHub Actions
 
-1. Build the project with `npm run build`.
-2. Publish the generated `out` directory from the repository's GitHub Pages settings.
+1. Push the repository to GitHub.
+2. Open the repository Settings -> Pages.
+3. Set the source to "GitHub Actions".
+4. The workflow in `.github/workflows/deploy.yml` will build the site and publish it to GitHub Pages on every push to the `main` branch.
+
+### Manual build
+
+```bash
+npm run build
+```
+
+The generated static files will be available in the `out` directory.
 
 ## Relationship to the desktop version
 
