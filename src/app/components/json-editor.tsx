@@ -1,22 +1,23 @@
 "use client";
 
 import { useMemo, useState, type ChangeEvent, type ReactNode } from "react";
-
-export type JsonValue = null | string | number | boolean | JsonObject | JsonArray;
-export type JsonObject = { [key: string]: JsonValue };
-export type JsonArray = JsonValue[];
-
-type JsonNodeType = "object" | "array" | "string" | "number" | "boolean" | "null";
-
-type JsonNode = {
-  id: string;
-  key: string;
-  value: JsonValue;
-  type: JsonNodeType;
-  children?: JsonNode[];
-};
-
-type NodePath = string[];
+import {
+  addChildToPath,
+  buildJsonTree,
+  cloneJsonValue,
+  formatJsonValue,
+  getJsonNodeType,
+  getValueAtPath,
+  parseJsonValueText,
+  removeValueAtPath,
+  renamePropertyAtPath,
+  type JsonNodeType,
+  type JsonPath,
+  type JsonTreeNode,
+  type JsonValue,
+  type JsonObject,
+  updateValueAtPath,
+} from "@/app/lib/json-model";
 
 const SAMPLE_JSON: JsonObject = {
   name: "Sample project",
@@ -29,182 +30,22 @@ const SAMPLE_JSON: JsonObject = {
   },
 };
 
-function getType(value: JsonValue): JsonNodeType {
-  if (value === null) return "null";
-  if (typeof value === "boolean") return "boolean";
-  if (typeof value === "number") return "number";
-  if (typeof value === "string") return "string";
-  if (Array.isArray(value)) return "array";
-  return "object";
-}
-
-function formatValue(value: JsonValue): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || value === null) {
-    return String(value);
-  }
-  return JSON.stringify(value, null, 2);
-}
-
-function buildTree(value: JsonValue, path: NodePath = []): JsonNode {
-  const id = path.join(".") || "root";
-  const type = getType(value);
-  if (type === "object") {
-    const entries = Object.entries(value as JsonObject);
-    return {
-      id,
-      key: path[path.length - 1] ?? "root",
-      value,
-      type,
-      children: entries.map(([childKey]) => buildTree((value as JsonObject)[childKey], [...path, childKey])),
-    };
-  }
-  if (type === "array") {
-    return {
-      id,
-      key: path[path.length - 1] ?? "root",
-      value,
-      type,
-      children: (value as JsonArray).map((childValue, index) => buildTree(childValue, [...path, String(index)])),
-    };
-  }
-  return {
-    id,
-    key: path[path.length - 1] ?? "root",
-    value,
-    type,
-  };
-}
-
-function cloneValue(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(cloneValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as JsonObject).map(([k, v]) => [k, cloneValue(v)]));
-  }
-  return value;
-}
-
-function updateValueAtPath(target: JsonValue, path: NodePath, nextValue: JsonValue): JsonValue {
-  if (path.length === 0) return nextValue;
-  const [head, ...rest] = path;
-  if (Array.isArray(target)) {
-    const nextArray = [...target];
-    const current = nextArray[Number(head)] as JsonValue;
-    nextArray[Number(head)] = rest.length === 0 ? nextValue : updateValueAtPath(current, rest, nextValue);
-    return nextArray;
-  }
-  const nextObject = { ...(target as JsonObject) };
-  if (rest.length === 0) {
-    nextObject[head] = nextValue;
-  } else {
-    nextObject[head] = updateValueAtPath(nextObject[head] as JsonValue, rest, nextValue);
-  }
-  return nextObject;
-}
-
-function removeValueAtPath(target: JsonValue, path: NodePath): JsonValue {
-  if (path.length === 0) return target;
-  const [head, ...rest] = path;
-  if (Array.isArray(target)) {
-    const nextArray = [...target];
-    nextArray.splice(Number(head), 1);
-    return nextArray;
-  }
-  const nextObject = { ...(target as JsonObject) };
-  if (rest.length === 0) {
-    delete nextObject[head];
-  } else {
-    nextObject[head] = removeValueAtPath(nextObject[head] as JsonValue, rest);
-  }
-  return nextObject;
-}
-
-function addChildToPath(target: JsonValue, path: NodePath, key: string, type: JsonNodeType): JsonValue {
-  const childValue = createEmptyValue(type);
-  if (path.length === 0) {
-    if (target && typeof target === "object" && !Array.isArray(target)) {
-      return { ...(target as JsonObject), [key]: childValue };
-    }
-    return childValue;
-  }
-  const [head, ...rest] = path;
-  if (Array.isArray(target)) {
-    const nextArray = [...target];
-    const current = nextArray[Number(head)] as JsonValue;
-    nextArray[Number(head)] = rest.length === 0 ? addChildToNode(current, key, type) : addChildToPath(current, rest, key, type);
-    return nextArray;
-  }
-  const nextObject = { ...(target as JsonObject) };
-  const currentValue = nextObject[head] as JsonValue;
-  nextObject[head] = rest.length === 0 ? addChildToNode(currentValue, key, type) : addChildToPath(currentValue, rest, key, type);
-  return nextObject;
-}
-
-function addChildToNode(target: JsonValue, key: string, type: JsonNodeType): JsonValue {
-  if (Array.isArray(target)) {
-    return [...target, createEmptyValue(type)];
-  }
-  if (target && typeof target === "object") {
-    return { ...(target as JsonObject), [key]: createEmptyValue(type) };
-  }
-  return { [key]: createEmptyValue(type) };
-}
-
-function createEmptyValue(type: JsonNodeType): JsonValue {
-  switch (type) {
-    case "object":
-      return {};
-    case "array":
-      return [];
-    case "string":
-      return "";
-    case "number":
-      return 0;
-    case "boolean":
-      return false;
-    default:
-      return null;
-  }
-}
-
-function isObject(value: JsonValue): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isArray(value: JsonValue): value is JsonArray {
-  return Array.isArray(value);
-}
-
-function parseValue(valueText: string, type: JsonNodeType): JsonValue {
-  switch (type) {
-    case "string":
-      return valueText;
-    case "number":
-      return Number(valueText);
-    case "boolean":
-      return valueText === "true";
-    case "null":
-      return null;
-    case "object":
-      return JSON.parse(valueText || "{}") as JsonObject;
-    case "array":
-      return JSON.parse(valueText || "[]") as JsonArray;
-    default:
-      return valueText;
-  }
+function readFromFile(file: File): Promise<string> {
+  return file.text();
 }
 
 export function JsonEditor() {
   const [jsonText, setJsonText] = useState(JSON.stringify(SAMPLE_JSON, null, 2));
   const [data, setData] = useState<JsonValue>(SAMPLE_JSON);
-  const [selectedPath, setSelectedPath] = useState<NodePath>([]);
+  const [selectedPath, setSelectedPath] = useState<JsonPath>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"tree" | "text">("tree");
   const [newKey, setNewKey] = useState("newField");
   const [newType, setNewType] = useState<JsonNodeType>("string");
   const [editValue, setEditValue] = useState("");
+  const [renameKey, setRenameKey] = useState("");
 
-  const tree = useMemo(() => buildTree(data), [data]);
+  const tree = useMemo(() => buildJsonTree(data), [data]);
 
   const selectedNode = useMemo(() => {
     if (selectedPath.length === 0) {
@@ -212,43 +53,30 @@ export function JsonEditor() {
         id: "root",
         key: "root",
         value: data,
-        type: getType(data),
-      } as JsonNode;
+        type: getJsonNodeType(data),
+      } as JsonTreeNode;
     }
-    let current: JsonValue = data;
-    for (const segment of selectedPath) {
-      if (isArray(current)) {
-        current = current[Number(segment)];
-      } else if (isObject(current)) {
-        current = current[segment];
-      } else {
-        return undefined;
-      }
-    }
+    const value = getValueAtPath(data, selectedPath) ?? null;
     return {
       id: selectedPath.join("."),
       key: selectedPath[selectedPath.length - 1] ?? "root",
-      value: current,
-      type: getType(current),
-    } as JsonNode;
+      value,
+      type: getJsonNodeType(value),
+    } as JsonTreeNode;
   }, [data, selectedPath]);
 
   const selectedType = selectedNode?.type ?? "object";
 
-  const updateSelectedValue = () => {
-    if (!selectedNode) return;
-    const nextValue = parseValue(editValue, selectedType);
-    const nextData = updateValueAtPath(data, selectedPath, nextValue);
+  const applyData = (nextData: JsonValue, nextText?: string) => {
     setData(nextData);
-    setJsonText(JSON.stringify(nextData, null, 2));
+    setJsonText(nextText ?? JSON.stringify(nextData, null, 2));
     setError(null);
   };
 
   const handleLoadJson = () => {
     try {
       const parsed = JSON.parse(jsonText);
-      setData(parsed);
-      setError(null);
+      applyData(parsed, jsonText);
       setSelectedPath([]);
       setActiveTab("tree");
     } catch (err) {
@@ -259,12 +87,10 @@ export function JsonEditor() {
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
     try {
+      const text = await readFromFile(file);
       const parsed = JSON.parse(text);
-      setData(parsed);
-      setJsonText(text);
-      setError(null);
+      applyData(parsed, text);
       setSelectedPath([]);
       setActiveTab("tree");
     } catch (err) {
@@ -282,7 +108,6 @@ export function JsonEditor() {
       anchor.download = "edited.json";
       anchor.click();
       URL.revokeObjectURL(url);
-      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to download JSON");
     }
@@ -291,41 +116,65 @@ export function JsonEditor() {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-      setError(null);
     } catch {
       setError("Clipboard access is unavailable in this browser.");
+    }
+  };
+
+  const handleApplyValue = () => {
+    if (!selectedNode) return;
+    try {
+      const nextValue = parseJsonValueText(editValue, selectedType);
+      const nextData = updateValueAtPath(data, selectedPath, nextValue);
+      applyData(nextData);
+      setEditValue(formatJsonValue(nextValue));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update value");
     }
   };
 
   const handleAddChild = () => {
     if (!selectedNode) return;
     const nextData = addChildToPath(data, selectedPath, newKey, newType);
-    setData(nextData);
-    setJsonText(JSON.stringify(nextData, null, 2));
-    setError(null);
+    applyData(nextData);
   };
 
   const handleRemoveSelected = () => {
     if (!selectedNode) return;
     const nextData = removeValueAtPath(data, selectedPath);
-    setData(nextData);
-    setJsonText(JSON.stringify(nextData, null, 2));
-    setError(null);
+    applyData(nextData);
+    setSelectedPath([]);
   };
 
   const handleDuplicateSelected = () => {
     if (!selectedNode) return;
-    const nextData = updateValueAtPath(data, selectedPath, cloneValue(selectedNode.value));
-    setData(nextData);
-    setJsonText(JSON.stringify(nextData, null, 2));
-    setError(null);
+    const nextData = updateValueAtPath(data, selectedPath, cloneJsonValue(selectedNode.value));
+    applyData(nextData);
   };
 
-  const handleSelectNode = (path: NodePath) => {
+  const handleRenameKey = () => {
+    if (!selectedNode || selectedPath.length < 1 || !renameKey.trim()) return;
+    try {
+      const nextData = renamePropertyAtPath(data, selectedPath, renameKey.trim());
+      applyData(nextData);
+      setRenameKey("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to rename key");
+    }
+  };
+
+  const handleSelectNode = (path: JsonPath) => {
     setSelectedPath(path);
+    const value = getValueAtPath(data, path) ?? null;
+    setEditValue(formatJsonValue(value));
+    if (path.length > 0) {
+      setRenameKey(String(path[path.length - 1]));
+    } else {
+      setRenameKey("");
+    }
   };
 
-  const renderNode = (node: JsonNode): ReactNode => {
+  const renderNode = (node: JsonTreeNode): ReactNode => {
     const isSelected = selectedPath.join(".") === node.id;
     const label = node.key === "root" ? "root" : node.key;
     return (
@@ -333,10 +182,7 @@ export function JsonEditor() {
         <button
           type="button"
           className={`tree-node ${isSelected ? "tree-node-active" : ""}`}
-          onClick={() => {
-            handleSelectNode(node.id === "root" ? [] : node.id.split("."));
-            setEditValue(formatValue(node.value));
-          }}
+          onClick={() => handleSelectNode(node.id === "root" ? [] : node.id.split("."))}
         >
           <span className="text-xs font-semibold uppercase text-slate-500">{node.type}</span>
           <span className="ml-2">{label}</span>
@@ -421,7 +267,7 @@ export function JsonEditor() {
                   <textarea value={editValue} onChange={(event) => setEditValue(event.target.value)} className="input-field mt-1" style={{ minHeight: "6rem", fontFamily: "monospace" }} />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={updateSelectedValue} className="button-primary">
+                  <button type="button" onClick={handleApplyValue} className="button-primary">
                     Apply value
                   </button>
                   <button type="button" onClick={handleDuplicateSelected} className="button-secondary">
@@ -431,6 +277,19 @@ export function JsonEditor() {
                     Delete
                   </button>
                 </div>
+              </div>
+            </div>
+
+            <div className="card p-4">
+              <h2 className="text-lg font-semibold">Edit node</h2>
+              <div className="mt-3" style={{ display: "grid", gap: "0.75rem" }}>
+                <div>
+                  <label className="text-sm font-medium text-slate-700">Rename key</label>
+                  <input value={renameKey} onChange={(event) => setRenameKey(event.target.value)} className="input-field mt-1" />
+                </div>
+                <button type="button" onClick={handleRenameKey} className="button-secondary">
+                  Rename key
+                </button>
               </div>
             </div>
 
