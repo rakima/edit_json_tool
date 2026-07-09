@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   addChildToPath,
+  buildClipboardPayload,
   buildJsonTree,
-  cloneJsonValue,
+  duplicateValueAtPath,
   formatJsonValue,
   getJsonNodeType,
   getValueAtPath,
+  pasteClipboardPayload,
   parseJsonValueText,
   removeValueAtPath,
   renamePropertyAtPath,
+  type ClipboardPayload,
   type JsonNodeType,
   type JsonPath,
   type JsonTreeNode,
@@ -20,6 +23,12 @@ import {
 } from "@/app/lib/json-model";
 
 type Language = "en" | "ja";
+
+type HistoryEntry = {
+  data: JsonValue;
+  text: string;
+  selectedPath: JsonPath;
+};
 
 const SAMPLE_JSON: JsonObject = {
   name: "Sample project",
@@ -43,6 +52,10 @@ const translations = {
     applyJson: "Apply JSON",
     downloadJson: "Download JSON",
     copyJson: "Copy JSON",
+    copyNode: "Copy node",
+    undo: "Undo",
+    redo: "Redo",
+    pasteNode: "Paste node",
     jsonInput: "JSON input",
     jsonInputHint: "Paste text or load a file, then apply it to the editor.",
     treeView: "Tree view",
@@ -76,6 +89,12 @@ const translations = {
       updateValue: "Unable to update value",
       renameKey: "Unable to rename key",
       notJsonFile: "Please drop a JSON file",
+      nothingToUndo: "There is nothing to undo.",
+      nothingToRedo: "There is nothing to redo.",
+      nothingToPaste: "There is no copied node to paste.",
+      pasteRootOnly: "Copied root data can only replace the document root.",
+      pasteObjectMemberOnly: "Copied object keys can only be pasted into an object.",
+      pasteArrayItemOnly: "Copied array items can only be pasted into an array.",
     },
   },
   ja: {
@@ -88,6 +107,10 @@ const translations = {
     applyJson: "JSON を適用",
     downloadJson: "JSON をダウンロード",
     copyJson: "JSON をコピー",
+    copyNode: "ノードをコピー",
+    undo: "元に戻す",
+    redo: "やり直し",
+    pasteNode: "ノードを貼り付け",
     jsonInput: "JSON 入力",
     jsonInputHint: "テキストを貼り付けるかファイルを読み込んで、エディタに反映してください。",
     treeView: "ツリー表示",
@@ -121,6 +144,12 @@ const translations = {
       updateValue: "値を更新できませんでした",
       renameKey: "キー名を変更できませんでした",
       notJsonFile: "JSON ファイルをドロップしてください",
+      nothingToUndo: "元に戻す操作がありません。",
+      nothingToRedo: "やり直す操作がありません。",
+      nothingToPaste: "貼り付けるコピー済みノードがありません。",
+      pasteRootOnly: "コピーした root データはドキュメントルートにのみ貼り付けできます。",
+      pasteObjectMemberOnly: "コピーした object キーは object 内にのみ貼り付けできます。",
+      pasteArrayItemOnly: "コピーした配列要素は array 内にのみ貼り付けできます。",
     },
   },
 } as const;
@@ -133,6 +162,11 @@ function getTypeLabel(type: JsonNodeType, language: Language) {
   return translations[language].nodeTypes[type];
 }
 
+function isTextEditingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 export function JsonEditor() {
   const [jsonText, setJsonText] = useState(JSON.stringify(SAMPLE_JSON, null, 2));
   const [data, setData] = useState<JsonValue>(SAMPLE_JSON);
@@ -143,15 +177,17 @@ export function JsonEditor() {
   const [newType, setNewType] = useState<JsonNodeType>("string");
   const [editValue, setEditValue] = useState("");
   const [renameKey, setRenameKey] = useState("");
-  const [language, setLanguage] = useState<Language>("en");
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
-
-  useEffect(() => {
+  const [language, setLanguage] = useState<Language>(() => {
+    if (typeof window === "undefined") return "en";
     const savedLanguage = window.localStorage.getItem("json-editor-language");
-    if (savedLanguage === "en" || savedLanguage === "ja") {
-      setLanguage(savedLanguage);
-    }
-  }, []);
+    return savedLanguage === "en" || savedLanguage === "ja" ? savedLanguage : "en";
+  });
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [copiedNode, setCopiedNode] = useState<ClipboardPayload | null>(null);
+  const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const valueInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     window.localStorage.setItem("json-editor-language", language);
@@ -181,22 +217,37 @@ export function JsonEditor() {
   const selectedType = selectedNode?.type ?? "object";
   const selectedTypeLabel = getTypeLabel(selectedType, language);
 
-  const applyData = (nextData: JsonValue, nextText?: string) => {
+  const pushHistory = useCallback(() => {
+    setUndoStack((stack) => [...stack, { data, text: jsonText, selectedPath }]);
+    setRedoStack([]);
+  }, [data, jsonText, selectedPath]);
+
+  const applyData = useCallback((nextData: JsonValue, nextText?: string) => {
     setData(nextData);
     setJsonText(nextText ?? JSON.stringify(nextData, null, 2));
     setError(null);
-  };
+  }, []);
 
-  const handleLoadJson = () => {
+  const handleLoadJson = useCallback(() => {
     try {
       const parsed = JSON.parse(jsonText);
+      pushHistory();
       applyData(parsed, jsonText);
       setSelectedPath([]);
       setActiveTab("tree");
     } catch {
       setError(t.errors.invalidJson);
     }
-  };
+  }, [applyData, jsonText, pushHistory, t.errors.invalidJson]);
+
+  const handleNewFile = useCallback(() => {
+    pushHistory();
+    applyData({}, JSON.stringify({}, null, 2));
+    setSelectedPath([]);
+    setEditValue(formatJsonValue({}));
+    setRenameKey("");
+    setActiveTab("tree");
+  }, [applyData, pushHistory]);
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -204,6 +255,7 @@ export function JsonEditor() {
     try {
       const text = await readFromFile(file);
       const parsed = JSON.parse(text);
+      pushHistory();
       applyData(parsed, text);
       setSelectedPath([]);
       setActiveTab("tree");
@@ -240,6 +292,7 @@ export function JsonEditor() {
     try {
       const text = await readFromFile(file);
       const parsed = JSON.parse(text);
+      pushHistory();
       applyData(parsed, text);
       setSelectedPath([]);
       setActiveTab("tree");
@@ -248,7 +301,7 @@ export function JsonEditor() {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = useCallback(() => {
     try {
       const pretty = JSON.stringify(data, null, 2);
       const blob = new Blob([pretty], { type: "application/json" });
@@ -261,21 +314,22 @@ export function JsonEditor() {
     } catch {
       setError(t.errors.download);
     }
-  };
+  }, [data, t.errors.download]);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
     } catch {
       setError(t.errors.clipboard);
     }
-  };
+  }, [data, t.errors.clipboard]);
 
   const handleApplyValue = () => {
     if (!selectedNode) return;
     try {
       const nextValue = parseJsonValueText(editValue, selectedType);
       const nextData = updateValueAtPath(data, selectedPath, nextValue);
+      pushHistory();
       applyData(nextData);
       setEditValue(formatJsonValue(nextValue));
     } catch {
@@ -286,43 +340,175 @@ export function JsonEditor() {
   const handleAddChild = () => {
     if (!selectedNode) return;
     const nextData = addChildToPath(data, selectedPath, newKey, newType);
+    pushHistory();
     applyData(nextData);
   };
 
-  const handleRemoveSelected = () => {
-    if (!selectedNode) return;
+  const handleRemoveSelected = useCallback(() => {
+    if (!selectedNode || selectedPath.length === 0) return;
     const nextData = removeValueAtPath(data, selectedPath);
+    pushHistory();
     applyData(nextData);
     setSelectedPath([]);
-  };
+  }, [applyData, data, pushHistory, selectedNode, selectedPath]);
 
   const handleDuplicateSelected = () => {
     if (!selectedNode) return;
-    const nextData = updateValueAtPath(data, selectedPath, cloneJsonValue(selectedNode.value));
-    applyData(nextData);
+    const result = duplicateValueAtPath(data, selectedPath);
+    pushHistory();
+    applyData(result.data);
+    handleSelectNode(result.path, result.data);
   };
 
   const handleRenameKey = () => {
     if (!selectedNode || selectedPath.length < 1 || !renameKey.trim()) return;
     try {
       const nextData = renamePropertyAtPath(data, selectedPath, renameKey.trim());
+      pushHistory();
       applyData(nextData);
+      setSelectedPath([...selectedPath.slice(0, -1), renameKey.trim()]);
       setRenameKey("");
     } catch {
       setError(t.errors.renameKey);
     }
   };
 
-  const handleSelectNode = (path: JsonPath) => {
+  const handleSelectNode = useCallback((path: JsonPath, sourceData: JsonValue = data) => {
     setSelectedPath(path);
-    const value = getValueAtPath(data, path) ?? null;
+    const value = getValueAtPath(sourceData, path) ?? null;
     setEditValue(formatJsonValue(value));
     if (path.length > 0) {
       setRenameKey(String(path[path.length - 1]));
     } else {
       setRenameKey("");
     }
-  };
+  }, [data]);
+
+  const handleCopySelectedNode = useCallback(async () => {
+    const payload = buildClipboardPayload(data, selectedPath);
+    if (!payload) return;
+    setCopiedNode(payload);
+    try {
+      const clipboardValue =
+        payload.sourceKind === "object_members"
+          ? Object.fromEntries(payload.items.map((item) => [item.key, item.value]))
+          : payload.items.length === 1
+            ? payload.items[0].value
+            : payload.items.map((item) => item.value);
+      await navigator.clipboard.writeText(JSON.stringify(clipboardValue, null, 2));
+      setError(null);
+    } catch {
+      setError(t.errors.clipboard);
+    }
+  }, [data, selectedPath, t.errors.clipboard]);
+
+  const handlePasteCopiedNode = useCallback(() => {
+    if (!copiedNode) {
+      setError(t.errors.nothingToPaste);
+      return;
+    }
+    try {
+      const result = pasteClipboardPayload(data, selectedPath, copiedNode);
+      pushHistory();
+      applyData(result.data);
+      handleSelectNode(result.path, result.data);
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "";
+      if (message === "pasteRootOnly") setError(t.errors.pasteRootOnly);
+      else if (message === "pasteObjectMemberOnly") setError(t.errors.pasteObjectMemberOnly);
+      else if (message === "pasteArrayItemOnly") setError(t.errors.pasteArrayItemOnly);
+      else setError(t.errors.updateValue);
+    }
+  }, [applyData, copiedNode, data, handleSelectNode, pushHistory, selectedPath, t.errors.nothingToPaste, t.errors.pasteArrayItemOnly, t.errors.pasteObjectMemberOnly, t.errors.pasteRootOnly, t.errors.updateValue]);
+
+  const handleUndo = useCallback(() => {
+    const entry = undoStack[undoStack.length - 1];
+    if (!entry) {
+      setError(t.errors.nothingToUndo);
+      return;
+    }
+    setUndoStack((stack) => stack.slice(0, -1));
+    setRedoStack((stack) => [...stack, { data, text: jsonText, selectedPath }]);
+    applyData(entry.data, entry.text);
+    handleSelectNode(entry.selectedPath, entry.data);
+  }, [applyData, data, handleSelectNode, jsonText, selectedPath, t.errors.nothingToUndo, undoStack]);
+
+  const handleRedo = useCallback(() => {
+    const entry = redoStack[redoStack.length - 1];
+    if (!entry) {
+      setError(t.errors.nothingToRedo);
+      return;
+    }
+    setRedoStack((stack) => stack.slice(0, -1));
+    setUndoStack((stack) => [...stack, { data, text: jsonText, selectedPath }]);
+    applyData(entry.data, entry.text);
+    handleSelectNode(entry.selectedPath, entry.data);
+  }, [applyData, data, handleSelectNode, jsonText, redoStack, selectedPath, t.errors.nothingToRedo]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const modifier = event.ctrlKey || event.metaKey;
+      const editingText = isTextEditingTarget(event.target);
+
+      if (modifier && key === "n") {
+        event.preventDefault();
+        handleNewFile();
+        return;
+      }
+      if (modifier && key === "o") {
+        event.preventDefault();
+        fileInputRef.current?.click();
+        return;
+      }
+      if (modifier && key === "s") {
+        event.preventDefault();
+        handleDownload();
+        return;
+      }
+      if (event.key === "F5") {
+        event.preventDefault();
+        handleLoadJson();
+        return;
+      }
+      if (event.key === "F2") {
+        event.preventDefault();
+        valueInputRef.current?.focus();
+        valueInputRef.current?.select();
+        return;
+      }
+      if (editingText) return;
+
+      if (modifier && key === "c") {
+        event.preventDefault();
+        void handleCopySelectedNode();
+      } else if (modifier && key === "v") {
+        event.preventDefault();
+        handlePasteCopiedNode();
+      } else if (modifier && key === "z") {
+        event.preventDefault();
+        handleUndo();
+      } else if (modifier && key === "y") {
+        event.preventDefault();
+        handleRedo();
+      } else if (event.key === "Delete") {
+        event.preventDefault();
+        handleRemoveSelected();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    handleCopySelectedNode,
+    handleDownload,
+    handleLoadJson,
+    handleNewFile,
+    handlePasteCopiedNode,
+    handleRedo,
+    handleRemoveSelected,
+    handleUndo,
+  ]);
 
   const renderNode = (node: JsonTreeNode): ReactNode => {
     const isSelected = selectedPath.join(".") === node.id;
@@ -365,7 +551,7 @@ export function JsonEditor() {
               </div>
               <label className="button-secondary" style={{ padding: "0.65rem 0.9rem" }}>
                 {t.loadFile}
-                <input type="file" accept=".json,application/json" onChange={handleFileSelect} style={{ marginLeft: "0.5rem" }} />
+                <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={handleFileSelect} style={{ marginLeft: "0.5rem" }} />
               </label>
               <button type="button" onClick={handleLoadJson} className="button-primary">
                 {t.applyJson}
@@ -375,6 +561,12 @@ export function JsonEditor() {
               </button>
               <button type="button" onClick={handleCopy} className="button-secondary">
                 {t.copyJson}
+              </button>
+              <button type="button" onClick={handleUndo} className="button-secondary">
+                {t.undo}
+              </button>
+              <button type="button" onClick={handleRedo} className="button-secondary">
+                {t.redo}
               </button>
             </div>
           </div>
@@ -433,11 +625,17 @@ export function JsonEditor() {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">{t.value}</label>
-                  <textarea value={editValue} onChange={(event) => setEditValue(event.target.value)} className="input-field mt-1" style={{ minHeight: "6rem", fontFamily: "monospace" }} />
+                  <textarea ref={valueInputRef} value={editValue} onChange={(event) => setEditValue(event.target.value)} className="input-field mt-1" style={{ minHeight: "6rem", fontFamily: "monospace" }} />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={handleApplyValue} className="button-primary">
                     {t.applyValue}
+                  </button>
+                  <button type="button" onClick={handleCopySelectedNode} className="button-secondary">
+                    {t.copyNode}
+                  </button>
+                  <button type="button" onClick={handlePasteCopiedNode} className="button-secondary">
+                    {t.pasteNode}
                   </button>
                   <button type="button" onClick={handleDuplicateSelected} className="button-secondary">
                     {t.duplicate}

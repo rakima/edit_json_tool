@@ -14,6 +14,11 @@ export type JsonTreeNode = {
 
 export type JsonPath = string[];
 
+export type ClipboardPayload =
+  | { sourceKind: "root"; items: [{ key: null; value: JsonValue }] }
+  | { sourceKind: "object_members"; items: Array<{ key: string; value: JsonValue }> }
+  | { sourceKind: "array_items"; items: Array<{ key: null; value: JsonValue }> };
+
 export function getJsonNodeType(value: JsonValue): JsonNodeType {
   if (value === null) return "null";
   if (typeof value === "boolean") return "boolean";
@@ -75,12 +80,23 @@ export function cloneJsonValue(value: JsonValue): JsonValue {
   return value;
 }
 
-function isObject(value: JsonValue): value is JsonObject {
+function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isArray(value: JsonValue): value is JsonArray {
+function isArray(value: unknown): value is JsonArray {
   return Array.isArray(value);
+}
+
+function nextCopyKey(parent: JsonObject, key: string): string {
+  const base = `${key}_copy`;
+  if (!(base in parent)) return base;
+
+  let suffix = 2;
+  while (`${base}_${suffix}` in parent) {
+    suffix += 1;
+  }
+  return `${base}_${suffix}`;
 }
 
 export function getValueAtPath(target: JsonValue, path: JsonPath): JsonValue | undefined {
@@ -125,7 +141,11 @@ export function removeValueAtPath(target: JsonValue, path: JsonPath): JsonValue 
   const [head, ...rest] = path;
   if (isArray(target)) {
     const nextArray = [...target];
-    nextArray.splice(Number(head), 1);
+    if (rest.length === 0) {
+      nextArray.splice(Number(head), 1);
+    } else {
+      nextArray[Number(head)] = removeValueAtPath(nextArray[Number(head)] as JsonValue, rest);
+    }
     return nextArray;
   }
   if (isObject(target)) {
@@ -138,6 +158,111 @@ export function removeValueAtPath(target: JsonValue, path: JsonPath): JsonValue 
     return nextObject;
   }
   return target;
+}
+
+export function duplicateValueAtPath(target: JsonValue, path: JsonPath): { data: JsonValue; path: JsonPath } {
+  if (path.length === 0) {
+    return { data: cloneJsonValue(target), path: [] };
+  }
+
+  const parentPath = path.slice(0, -1);
+  const key = path[path.length - 1] as string;
+  const parent = getValueAtPath(target, parentPath);
+  const value = getValueAtPath(target, path);
+  if (value === undefined) return { data: target, path };
+
+  if (isArray(parent)) {
+    const index = Number(key);
+    const nextParent = [...parent];
+    nextParent.splice(index + 1, 0, cloneJsonValue(value));
+    return {
+      data: updateValueAtPath(target, parentPath, nextParent),
+      path: [...parentPath, String(index + 1)],
+    };
+  }
+
+  if (isObject(parent)) {
+    const nextParent = { ...parent };
+    const nextKey = nextCopyKey(nextParent, key);
+    nextParent[nextKey] = cloneJsonValue(value);
+    return {
+      data: updateValueAtPath(target, parentPath, nextParent),
+      path: [...parentPath, nextKey],
+    };
+  }
+
+  return { data: target, path };
+}
+
+export function buildClipboardPayload(target: JsonValue, path: JsonPath): ClipboardPayload | null {
+  const value = getValueAtPath(target, path);
+  if (value === undefined) return null;
+  if (path.length === 0) {
+    return { sourceKind: "root", items: [{ key: null, value: cloneJsonValue(value) }] };
+  }
+
+  const parent = getValueAtPath(target, path.slice(0, -1));
+  if (isArray(parent)) {
+    return { sourceKind: "array_items", items: [{ key: null, value: cloneJsonValue(value) }] };
+  }
+
+  return { sourceKind: "object_members", items: [{ key: path[path.length - 1] as string, value: cloneJsonValue(value) }] };
+}
+
+export function pasteClipboardPayload(target: JsonValue, path: JsonPath, payload: ClipboardPayload): { data: JsonValue; path: JsonPath } {
+  if (payload.sourceKind === "root") {
+    if (path.length !== 0) {
+      throw new Error("pasteRootOnly");
+    }
+    const rootItem = payload.items[0];
+    return { data: cloneJsonValue(rootItem.value), path: [] };
+  }
+
+  const selectedValue = getValueAtPath(target, path);
+  const parentPath = path.slice(0, -1);
+  const parentValue = path.length > 0 ? getValueAtPath(target, parentPath) : undefined;
+
+  if (payload.sourceKind === "array_items") {
+    const values = payload.items.map((item) => cloneJsonValue(item.value));
+    if (isArray(parentValue)) {
+      const index = Number(path[path.length - 1] as string) + 1;
+      const nextParent = [...parentValue];
+      nextParent.splice(index, 0, ...values);
+      return { data: updateValueAtPath(target, parentPath, nextParent), path: [...parentPath, String(index)] };
+    }
+    if (isArray(selectedValue)) {
+      const start = selectedValue.length;
+      const nextArray = [...selectedValue, ...values];
+      return { data: updateValueAtPath(target, path, nextArray), path: [...path, String(start)] };
+    }
+    throw new Error("pasteArrayItemOnly");
+  }
+
+  if (payload.sourceKind === "object_members") {
+    const pasteIntoObject = (objectPath: JsonPath, objectValue: JsonObject) => {
+      const nextObject = { ...objectValue };
+      let firstKey = "";
+      for (const item of payload.items) {
+        const key = item.key in nextObject ? nextCopyKey(nextObject, item.key) : item.key;
+        nextObject[key] = cloneJsonValue(item.value);
+        if (!firstKey) firstKey = key;
+      }
+      return {
+        data: updateValueAtPath(target, objectPath, nextObject),
+        path: [...objectPath, firstKey],
+      };
+    };
+
+    if (isObject(selectedValue)) {
+      return pasteIntoObject(path, selectedValue);
+    }
+    if (isObject(parentValue) && path.length > 0) {
+      return pasteIntoObject(parentPath, parentValue);
+    }
+    throw new Error("pasteObjectMemberOnly");
+  }
+
+  return { data: target, path };
 }
 
 export function addChildToPath(target: JsonValue, path: JsonPath, key: string, type: JsonNodeType): JsonValue {
@@ -178,11 +303,14 @@ function addChildToNode(target: JsonValue, key: string, type: JsonNodeType): Jso
 }
 
 export function renamePropertyAtPath(target: JsonValue, path: JsonPath, newKey: string): JsonValue {
-  if (path.length < 2) return target;
+  if (path.length < 1) return target;
   const parentPath = path.slice(0, -1);
   const currentKey = path[path.length - 1];
   const parentValue = getValueAtPath(target, parentPath);
   if (!parentValue || !isObject(parentValue)) return target;
+  if (newKey !== currentKey && newKey in parentValue) {
+    throw new Error("Key already exists");
+  }
   const nextParentValue = { ...parentValue };
   const childValue = nextParentValue[currentKey];
   delete nextParentValue[currentKey];
