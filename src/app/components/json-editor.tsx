@@ -760,7 +760,7 @@ export function JsonEditor() {
                 {renderNode(tree)}
               </div>
             ) : (
-              <textarea value={jsonText} readOnly className="input-field" style={{ minHeight: "480px", fontFamily: "monospace" }} />
+              <textarea value={jsonText} readOnly aria-label="JSON preview content" className="input-field" style={{ minHeight: "480px", fontFamily: "monospace" }} />
             )}
           </div>
 
@@ -782,6 +782,7 @@ export function JsonEditor() {
                     onChange={(event) => setRenameKey(event.target.value)}
                     onBlur={handleRenameKeyBlur}
                     disabled={!canRenameSelectedKey}
+                    aria-label="Selected node key"
                     className="input-field mt-1"
                   />
                 </div>
@@ -799,6 +800,7 @@ export function JsonEditor() {
                       setIsValueDirty(true);
                     }}
                     onBlur={handleValueBlur}
+                    aria-label="Selected node value"
                     className="input-field mt-1"
                     style={{ minHeight: "6rem", fontFamily: "monospace" }}
                   />
