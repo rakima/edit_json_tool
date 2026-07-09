@@ -409,6 +409,14 @@ export function JsonEditor() {
     return nextData;
   }, [applyData, data, editValue, isValueDirty, pushHistory, selectedNode, selectedPath, selectedType]);
 
+  const handleValueBlur = () => {
+    try {
+      commitSelectedValueIfChanged();
+    } catch {
+      setError(t.errors.updateValue);
+    }
+  };
+
   const handleAddChild = () => {
     if (!selectedNode) return;
     const nextData = addChildToPath(data, selectedPath, newKey, newType);
@@ -815,6 +823,7 @@ export function JsonEditor() {
                       setEditValue(event.target.value);
                       setIsValueDirty(true);
                     }}
+                    onBlur={handleValueBlur}
                     className="input-field mt-1"
                     style={{ minHeight: "6rem", fontFamily: "monospace" }}
                   />
