@@ -172,7 +172,7 @@ function isTextEditingTarget(target: EventTarget | null) {
 
 function formatTreeNodeValue(value: JsonValue, type: JsonNodeType) {
   if (type === "object" || type === "array") return "";
-  const text = type === "string" ? `"${String(value)}"` : formatJsonValue(value);
+  const text = formatJsonValue(value);
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
