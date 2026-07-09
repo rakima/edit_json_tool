@@ -7,6 +7,7 @@ export type JsonNodeType = "object" | "array" | "string" | "number" | "boolean" 
 export type JsonTreeNode = {
   id: string;
   key: string;
+  path: JsonPath;
   value: JsonValue;
   type: JsonNodeType;
   children?: JsonTreeNode[];
@@ -194,6 +195,61 @@ export function duplicateValueAtPath(target: JsonValue, path: JsonPath): { data:
   return { data: target, path };
 }
 
+export function reorderValueAtPath(
+  target: JsonValue,
+  sourcePath: JsonPath,
+  targetPath: JsonPath,
+  insertAfter: boolean,
+): { data: JsonValue; path: JsonPath } {
+  if (sourcePath.length === 0 || targetPath.length === 0) return { data: target, path: sourcePath };
+  const sourceParentPath = sourcePath.slice(0, -1);
+  const targetParentPath = targetPath.slice(0, -1);
+  if (sourceParentPath.join("\u0000") !== targetParentPath.join("\u0000")) {
+    throw new Error("reorderSameParentOnly");
+  }
+
+  const parent = getValueAtPath(target, sourceParentPath);
+  const sourceKey = sourcePath[sourcePath.length - 1] as string;
+  const targetKey = targetPath[targetPath.length - 1] as string;
+
+  if (isArray(parent)) {
+    const sourceIndex = Number(sourceKey);
+    const targetIndex = Number(targetKey);
+    const insertIndex = targetIndex + (insertAfter ? 1 : 0);
+    const finalIndex = sourceIndex < insertIndex ? insertIndex - 1 : insertIndex;
+    if (finalIndex === sourceIndex) return { data: target, path: sourcePath };
+
+    const nextParent = [...parent];
+    const [item] = nextParent.splice(sourceIndex, 1);
+    nextParent.splice(finalIndex, 0, item as JsonValue);
+    return {
+      data: updateValueAtPath(target, sourceParentPath, nextParent),
+      path: [...sourceParentPath, String(finalIndex)],
+    };
+  }
+
+  if (isObject(parent)) {
+    const entries = Object.entries(parent);
+    const sourceIndex = entries.findIndex(([key]) => key === sourceKey);
+    const targetIndex = entries.findIndex(([key]) => key === targetKey);
+    if (sourceIndex < 0 || targetIndex < 0) return { data: target, path: sourcePath };
+
+    const insertIndex = targetIndex + (insertAfter ? 1 : 0);
+    const finalIndex = sourceIndex < insertIndex ? insertIndex - 1 : insertIndex;
+    if (finalIndex === sourceIndex) return { data: target, path: sourcePath };
+
+    const nextEntries = [...entries];
+    const [entry] = nextEntries.splice(sourceIndex, 1);
+    nextEntries.splice(finalIndex, 0, entry as [string, JsonValue]);
+    return {
+      data: updateValueAtPath(target, sourceParentPath, Object.fromEntries(nextEntries) as JsonObject),
+      path: sourcePath,
+    };
+  }
+
+  return { data: target, path: sourcePath };
+}
+
 export function buildClipboardPayload(target: JsonValue, path: JsonPath): ClipboardPayload | null {
   const value = getValueAtPath(target, path);
   if (value === undefined) return null;
@@ -326,6 +382,7 @@ export function buildJsonTree(value: JsonValue, path: JsonPath = []): JsonTreeNo
     return {
       id,
       key: path[path.length - 1] ?? "root",
+      path,
       value,
       type,
       children: entries.map(([childKey]) => buildJsonTree((value as JsonObject)[childKey], [...path, childKey])),
@@ -335,6 +392,7 @@ export function buildJsonTree(value: JsonValue, path: JsonPath = []): JsonTreeNo
     return {
       id,
       key: path[path.length - 1] ?? "root",
+      path,
       value,
       type,
       children: (value as JsonArray).map((childValue, index) => buildJsonTree(childValue, [...path, String(index)])),
@@ -343,6 +401,7 @@ export function buildJsonTree(value: JsonValue, path: JsonPath = []): JsonTreeNo
   return {
     id,
     key: path[path.length - 1] ?? "root",
+    path,
     value,
     type,
   };

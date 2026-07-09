@@ -13,6 +13,7 @@ import {
   parseJsonValueText,
   removeValueAtPath,
   renamePropertyAtPath,
+  reorderValueAtPath,
   type ClipboardPayload,
   type JsonNodeType,
   type JsonPath,
@@ -31,6 +32,13 @@ type HistoryEntry = {
   data: JsonValue;
   text: string;
   selectedPath: JsonPath;
+};
+
+type DropPosition = "before" | "after";
+
+type TreeDropTarget = {
+  path: JsonPath;
+  position: DropPosition;
 };
 
 const SAMPLE_JSON: JsonObject = {
@@ -98,6 +106,7 @@ const translations = {
       pasteRootOnly: "Copied root data can only replace the document root.",
       pasteObjectMemberOnly: "Copied object keys can only be pasted into an object.",
       pasteArrayItemOnly: "Copied array items can only be pasted into an array.",
+      reorderSameParentOnly: "Items can only be reordered within the same parent.",
     },
   },
   ja: {
@@ -153,6 +162,7 @@ const translations = {
       pasteRootOnly: "コピーした root データはドキュメントルートにのみ貼り付けできます。",
       pasteObjectMemberOnly: "コピーした object キーは object 内にのみ貼り付けできます。",
       pasteArrayItemOnly: "コピーした配列要素は array 内にのみ貼り付けできます。",
+      reorderSameParentOnly: "同じ親の中でのみ並べ替えできます。",
     },
   },
 } as const;
@@ -174,6 +184,14 @@ function formatTreeNodeValue(value: JsonValue, type: JsonNodeType) {
   if (type === "object" || type === "array") return "";
   const text = formatJsonValue(value);
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function arePathsEqual(left: JsonPath, right: JsonPath) {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
+}
+
+function haveSameParentPath(left: JsonPath, right: JsonPath) {
+  return arePathsEqual(left.slice(0, -1), right.slice(0, -1));
 }
 
 function getStoredLanguage(): Language {
@@ -208,6 +226,8 @@ export function JsonEditor() {
   const [renameKey, setRenameKey] = useState("");
   const language = useSyncExternalStore(subscribeToLanguageChanges, getStoredLanguage, getServerLanguageSnapshot);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [draggingPath, setDraggingPath] = useState<JsonPath | null>(null);
+  const [treeDropTarget, setTreeDropTarget] = useState<TreeDropTarget | null>(null);
   const [copiedNode, setCopiedNode] = useState<ClipboardPayload | null>(null);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
@@ -227,6 +247,7 @@ export function JsonEditor() {
       return {
         id: "root",
         key: "root",
+        path: [],
         value: data,
         type: getJsonNodeType(data),
       } as JsonTreeNode;
@@ -235,6 +256,7 @@ export function JsonEditor() {
     return {
       id: selectedPath.join("."),
       key: selectedPath[selectedPath.length - 1] ?? "root",
+      path: selectedPath,
       value,
       type: getJsonNodeType(value),
     } as JsonTreeNode;
@@ -243,8 +265,8 @@ export function JsonEditor() {
   const selectedType = selectedNode?.type ?? "object";
   const selectedTypeLabel = getTypeLabel(selectedType, language);
 
-  const pushHistory = useCallback(() => {
-    setUndoStack((stack) => [...stack, { data, text: jsonText, selectedPath }]);
+  const pushHistory = useCallback((historyData = data, historyText = jsonText, historyPath = selectedPath) => {
+    setUndoStack((stack) => [...stack, { data: historyData, text: historyText, selectedPath: historyPath }]);
     setRedoStack([]);
   }, [data, jsonText, selectedPath]);
 
@@ -444,6 +466,64 @@ export function JsonEditor() {
     }
   }, [commitSelectedValueIfChanged, data, t.errors.updateValue]);
 
+  const handleTreeNodeDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>, path: JsonPath) => {
+    event.stopPropagation();
+    if (path.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    setDraggingPath(path);
+    setTreeDropTarget(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/json-editor-path", JSON.stringify(path));
+  }, []);
+
+  const handleTreeNodeDragOver = useCallback((event: React.DragEvent<HTMLButtonElement>, path: JsonPath) => {
+    event.stopPropagation();
+    if (!draggingPath || path.length === 0 || !haveSameParentPath(draggingPath, path)) {
+      setTreeDropTarget(null);
+      return;
+    }
+
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const position: DropPosition = event.clientY >= bounds.top + bounds.height / 2 ? "after" : "before";
+    setTreeDropTarget({ path, position });
+    event.dataTransfer.dropEffect = "move";
+  }, [draggingPath]);
+
+  const handleTreeNodeDrop = useCallback((event: React.DragEvent<HTMLButtonElement>, path: JsonPath) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!draggingPath || path.length === 0 || !haveSameParentPath(draggingPath, path)) {
+      setTreeDropTarget(null);
+      setDraggingPath(null);
+      setError(t.errors.reorderSameParentOnly);
+      return;
+    }
+
+    const dropPosition = treeDropTarget?.path && arePathsEqual(treeDropTarget.path, path) ? treeDropTarget.position : "after";
+    setTreeDropTarget(null);
+    setDraggingPath(null);
+
+    try {
+      const baseData = commitSelectedValueIfChanged();
+      const result = reorderValueAtPath(baseData, draggingPath, path, dropPosition === "after");
+      if (result.data === baseData) return;
+      pushHistory(baseData, JSON.stringify(baseData, null, 2), selectedPath);
+      applyData(result.data);
+      handleSelectNode(result.path, result.data);
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "";
+      setError(message === "reorderSameParentOnly" ? t.errors.reorderSameParentOnly : t.errors.updateValue);
+    }
+  }, [applyData, commitSelectedValueIfChanged, draggingPath, handleSelectNode, pushHistory, selectedPath, t.errors.reorderSameParentOnly, t.errors.updateValue, treeDropTarget]);
+
+  const handleTreeNodeDragEnd = useCallback(() => {
+    setDraggingPath(null);
+    setTreeDropTarget(null);
+  }, []);
+
   const handleCopySelectedNode = useCallback(async () => {
     const payload = buildClipboardPayload(data, selectedPath);
     if (!payload) return;
@@ -571,15 +651,22 @@ export function JsonEditor() {
   ]);
 
   const renderNode = (node: JsonTreeNode): ReactNode => {
-    const isSelected = selectedPath.join(".") === node.id;
+    const isSelected = arePathsEqual(selectedPath, node.path);
+    const isDragging = draggingPath ? arePathsEqual(draggingPath, node.path) : false;
+    const dropPosition = treeDropTarget && arePathsEqual(treeDropTarget.path, node.path) ? treeDropTarget.position : null;
     const label = node.key === "root" ? t.root : node.key;
     const valuePreview = formatTreeNodeValue(node.value, node.type);
     return (
-      <div key={node.id} className="ml-2">
+      <div key={node.id} className="ml-2 tree-node-row">
         <button
           type="button"
-          className={`tree-node ${isSelected ? "tree-node-active" : ""}`}
-          onClick={() => handleSelectNode(node.id === "root" ? [] : node.id.split("."), data, true)}
+          className={`tree-node ${isSelected ? "tree-node-active" : ""} ${isDragging ? "tree-node-dragging" : ""} ${dropPosition ? `tree-node-drop-${dropPosition}` : ""}`}
+          draggable={node.path.length > 0}
+          onClick={() => handleSelectNode(node.path, data, true)}
+          onDragStart={(event) => handleTreeNodeDragStart(event, node.path)}
+          onDragOver={(event) => handleTreeNodeDragOver(event, node.path)}
+          onDrop={(event) => handleTreeNodeDrop(event, node.path)}
+          onDragEnd={handleTreeNodeDragEnd}
         >
           <span className="tree-node-type">{node.type}</span>
           <span className="tree-node-label">{label}</span>
