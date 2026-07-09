@@ -1,35 +1,53 @@
 # edit_json_tool
 
-This is the browser-based version of edit_json_tool.
-The desktop version is available as edit_json_tool_desktop.
+[日本語 README](README.ja.md)
 
-## Demo URL
+Browser-based JSON editor for loading, inspecting, editing, and exporting JSON files in a tree-oriented UI.
+
+![edit_json_tool screenshot](doc/image.png)
+
+## Demo
 
 https://rakima.github.io/edit_json_tool/
 
-## Overview
+## Features
 
-edit_json_tool is a lightweight browser-based JSON editor for loading, editing, and exporting JSON files without requiring a server. It is inspired by the desktop editor workflow and focuses on a simple, mouse-friendly tree-based experience.
-
-## Main features
-
-- Load JSON from a local `.json` file
-- Paste JSON text directly into the editor
-- Validate JSON syntax on load
-- View JSON in a tree structure
-- Edit values, add new fields, delete nodes, and duplicate entries
-- Export the edited JSON as a formatted file
-- Copy the formatted JSON to the clipboard
+- Load a local `.json` file by file picker or drag and drop
+- Edit JSON through a tree view instead of raw text
+- Inspect and edit the selected node key, type, and value
+- Add child values to objects and arrays
+- Duplicate, delete, copy, and paste nodes
+- Reorder sibling items with mouse drag and drop
+- Undo and redo editor operations
+- Preview the formatted JSON in a read-only JSON preview
+- Download the edited JSON or copy it to the clipboard
+- Switch the UI between English and Japanese
 
 ## Usage
 
 1. Open the app in a browser.
-2. Load a JSON file or paste JSON text into the editor.
-3. Select a node in the tree view to inspect or update it.
-4. Add, edit, duplicate, or delete nodes as needed.
-5. Download the result as a JSON file or copy it to the clipboard.
+2. Load a JSON file with `Load file`, or drop a `.json` file onto the editor area.
+3. Select a node in `Tree view`.
+4. Edit the selected node from the `Selected node` panel.
+5. Use `Add child`, `Duplicate`, `Delete`, copy/paste, or drag and drop as needed.
+6. Check the result in `JSON preview`.
+7. Export the result with `Download JSON` or `Copy JSON`.
 
-## Setup
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+N` | Start a new empty JSON object |
+| `Ctrl+O` | Open the file picker |
+| `Ctrl+S` | Download the current JSON |
+| `Ctrl+C` | Copy the selected node when focus is not in an input |
+| `Ctrl+V` | Paste the copied node when focus is not in an input |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` | Redo |
+| `Delete` | Delete the selected node |
+| `F2` | Focus the selected node value editor |
+
+## Development
 
 ```bash
 npm install
@@ -38,34 +56,31 @@ npm run dev
 
 Then open http://localhost:3000.
 
-## Development commands
+## Scripts
 
 ```bash
 npm run dev
 npm run build
 npm run start
 npm run lint
+npx tsc --noEmit
+npm run test:e2e
 ```
 
-## GitHub Pages deployment
+## Testing
 
-The app is configured for static export and can be published to GitHub Pages automatically.
-
-### Automatic deployment with GitHub Actions
-
-1. Push the repository to GitHub.
-2. Open the repository Settings -> Pages.
-3. Set the source to "GitHub Actions".
-4. The workflow in `.github/workflows/deploy.yml` will build the site and publish it to GitHub Pages on every push to the `main` branch.
-
-### Manual build
+The project uses Playwright for browser regression tests. The tests cover value editing, key validation, key rename undo, and drag reorder.
 
 ```bash
-npm run build
+npm run test:e2e
 ```
 
-The generated static files will be available in the `out` directory.
+If Playwright browsers are not installed yet:
+
+```bash
+npx playwright install chromium
+```
 
 ## Relationship to the desktop version
 
-This project follows the same editing philosophy as the desktop version, but adapts it for the browser with a simpler, client-side workflow. The desktop application remains the reference point for the overall interaction model and feature set.
+`edit_json_tool_desktop` is the desktop reference implementation. This browser version follows the same tree-editing philosophy while keeping all work client-side in the browser.
