@@ -699,31 +699,35 @@ export function JsonEditor() {
                 {t.subtitle}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <div className="flex gap-2 rounded-lg border border-slate-200 bg-white p-1">
-                <button type="button" onClick={() => setLanguage("en")} className={language === "en" ? "button-primary" : "button-secondary"}>
-                  {t.switchToEnglish}
+            <div className="toolbar">
+              <div className="toolbar-group" aria-label={t.language}>
+                <button type="button" onClick={() => setLanguage("en")} className={language === "en" ? "button-primary button-compact" : "button-secondary button-compact"} aria-label={t.switchToEnglish}>
+                  EN
                 </button>
-                <button type="button" onClick={() => setLanguage("ja")} className={language === "ja" ? "button-primary" : "button-secondary"}>
-                  {t.switchToJapanese}
+                <button type="button" onClick={() => setLanguage("ja")} className={language === "ja" ? "button-primary button-compact" : "button-secondary button-compact"} aria-label={t.switchToJapanese}>
+                  JA
                 </button>
               </div>
-              <label className="button-secondary" style={{ padding: "0.65rem 0.9rem" }}>
-                {t.loadFile}
-                <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={handleFileSelect} style={{ marginLeft: "0.5rem" }} />
-              </label>
-              <button type="button" onClick={handleDownload} className="button-secondary">
-                {t.downloadJson}
-              </button>
-              <button type="button" onClick={handleCopy} className="button-secondary">
-                {t.copyJson}
-              </button>
-              <button type="button" onClick={handleUndo} className="button-secondary button-icon" aria-label={t.undo} title={t.undo}>
-                ←
-              </button>
-              <button type="button" onClick={handleRedo} className="button-secondary button-icon" aria-label={t.redo} title={t.redo}>
-                →
-              </button>
+              <div className="toolbar-group">
+                <label className="button-secondary">
+                  {t.loadFile}
+                  <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={handleFileSelect} className="visually-hidden" />
+                </label>
+                <button type="button" onClick={handleDownload} className="button-secondary">
+                  {t.downloadJson}
+                </button>
+                <button type="button" onClick={handleCopy} className="button-secondary">
+                  {t.copyJson}
+                </button>
+              </div>
+              <div className="toolbar-group">
+                <button type="button" onClick={handleUndo} className="button-secondary button-icon" aria-label={t.undo} title={t.undo}>
+                  ←
+                </button>
+                <button type="button" onClick={handleRedo} className="button-secondary button-icon" aria-label={t.redo} title={t.redo}>
+                  →
+                </button>
+              </div>
             </div>
           </div>
         </header>

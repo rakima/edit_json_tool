@@ -172,6 +172,40 @@ main {
   filter: brightness(0.97);
 }
 
+.button-compact {
+  min-width: 2.5rem;
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
+}
+
+.toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.toolbar-group {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.25rem;
+}
+
+.visually-hidden {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 .input-field {
   width: 100%;
   border: 1px solid #cbd5e1;
