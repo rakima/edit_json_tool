@@ -215,6 +215,25 @@ main {
   padding: 0.625rem 0.75rem;
 }
 
+.notice {
+  border: 1px solid;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  padding: 0.75rem;
+}
+
+.notice-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.notice-success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
 textarea {
   resize: vertical;
   min-height: 2.5rem;

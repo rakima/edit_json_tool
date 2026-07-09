@@ -41,6 +41,11 @@ type TreeDropTarget = {
   position: DropPosition;
 };
 
+type Notice = {
+  kind: "error" | "success";
+  message: string;
+};
+
 const SAMPLE_JSON: JsonObject = {
   name: "Sample project",
   version: 1,
@@ -84,6 +89,21 @@ const translations = {
     addChild: "Add child",
     key: "Key",
     addChildButton: "Add child to selected node",
+    notices: {
+      loadedJson: "Loaded JSON.",
+      downloadedJson: "Downloaded JSON.",
+      copiedJson: "Copied JSON.",
+      copiedNode: "Copied node.",
+      pastedNode: "Pasted node.",
+      updatedValue: "Updated value.",
+      renamedKey: "Renamed key.",
+      addedChild: "Added child.",
+      duplicatedNode: "Duplicated node.",
+      deletedNode: "Deleted node.",
+      reorderedNode: "Reordered node.",
+      undo: "Undid change.",
+      redo: "Redid change.",
+    },
     nodeTypes: {
       string: "string",
       number: "number",
@@ -139,6 +159,21 @@ const translations = {
     addChild: "子要素を追加",
     key: "キー",
     addChildButton: "選択したノードに子要素を追加",
+    notices: {
+      loadedJson: "JSON を読み込みました。",
+      downloadedJson: "JSON をダウンロードしました。",
+      copiedJson: "JSON をコピーしました。",
+      copiedNode: "ノードをコピーしました。",
+      pastedNode: "ノードを貼り付けました。",
+      updatedValue: "値を更新しました。",
+      renamedKey: "キー名を変更しました。",
+      addedChild: "子要素を追加しました。",
+      duplicatedNode: "ノードを複製しました。",
+      deletedNode: "ノードを削除しました。",
+      reorderedNode: "ノードを並べ替えました。",
+      undo: "元に戻しました。",
+      redo: "やり直しました。",
+    },
     nodeTypes: {
       string: "文字列",
       number: "数値",
@@ -215,7 +250,7 @@ export function JsonEditor() {
   const [jsonText, setJsonText] = useState(JSON.stringify(SAMPLE_JSON, null, 2));
   const [data, setData] = useState<JsonValue>(SAMPLE_JSON);
   const [selectedPath, setSelectedPath] = useState<JsonPath>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [activeTab, setActiveTab] = useState<"tree" | "text">("tree");
   const [newKey, setNewKey] = useState("newField");
   const [newType, setNewType] = useState<JsonNodeType>("string");
@@ -239,6 +274,14 @@ export function JsonEditor() {
 
   const t = translations[language];
   const tree = useMemo(() => buildJsonTree(data), [data]);
+
+  const showError = useCallback((message: string) => {
+    setNotice({ kind: "error", message });
+  }, []);
+
+  const showSuccess = useCallback((message: string) => {
+    setNotice({ kind: "success", message });
+  }, []);
 
   const selectedNode = useMemo(() => {
     if (selectedPath.length === 0) {
@@ -274,7 +317,6 @@ export function JsonEditor() {
   const applyData = useCallback((nextData: JsonValue, nextText?: string) => {
     setData(nextData);
     setJsonText(nextText ?? JSON.stringify(nextData, null, 2));
-    setError(null);
   }, []);
 
   const handleNewFile = useCallback(() => {
@@ -285,7 +327,8 @@ export function JsonEditor() {
     setIsValueDirty(false);
     setRenameKey("");
     setActiveTab("tree");
-  }, [applyData, pushHistory]);
+    showSuccess(t.notices.loadedJson);
+  }, [applyData, pushHistory, showSuccess, t.notices.loadedJson]);
 
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -299,8 +342,9 @@ export function JsonEditor() {
       setEditValue(formatJsonValue(parsed));
       setIsValueDirty(false);
       setActiveTab("tree");
+      showSuccess(t.notices.loadedJson);
     } catch {
-      setError(t.errors.invalidJson);
+      showError(t.errors.invalidJson);
     }
   };
 
@@ -326,7 +370,7 @@ export function JsonEditor() {
     if (files.length === 0) return;
     const file = files[0];
     if (!file.type.includes("json") && !file.name.endsWith(".json")) {
-      setError(t.errors.notJsonFile);
+      showError(t.errors.notJsonFile);
       return;
     }
     try {
@@ -338,8 +382,9 @@ export function JsonEditor() {
       setEditValue(formatJsonValue(parsed));
       setIsValueDirty(false);
       setActiveTab("tree");
+      showSuccess(t.notices.loadedJson);
     } catch {
-      setError(t.errors.invalidJson);
+      showError(t.errors.invalidJson);
     }
   };
 
@@ -353,18 +398,20 @@ export function JsonEditor() {
       anchor.download = "edited.json";
       anchor.click();
       URL.revokeObjectURL(url);
+      showSuccess(t.notices.downloadedJson);
     } catch {
-      setError(t.errors.download);
+      showError(t.errors.download);
     }
-  }, [data, t.errors.download]);
+  }, [data, showError, showSuccess, t.errors.download, t.notices.downloadedJson]);
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+      showSuccess(t.notices.copiedJson);
     } catch {
-      setError(t.errors.clipboard);
+      showError(t.errors.clipboard);
     }
-  }, [data, t.errors.clipboard]);
+  }, [data, showError, showSuccess, t.errors.clipboard, t.notices.copiedJson]);
 
   const handleApplyValue = () => {
     if (!selectedNode) return;
@@ -375,8 +422,9 @@ export function JsonEditor() {
       applyData(nextData);
       setEditValue(formatJsonValue(nextValue));
       setIsValueDirty(false);
+      showSuccess(t.notices.updatedValue);
     } catch {
-      setError(t.errors.updateValue);
+      showError(t.errors.updateValue);
     }
   };
 
@@ -390,14 +438,15 @@ export function JsonEditor() {
     applyData(nextData);
     setEditValue(formatJsonValue(nextValue));
     setIsValueDirty(false);
+    showSuccess(t.notices.updatedValue);
     return nextData;
-  }, [applyData, data, editValue, isValueDirty, pushHistory, selectedNode, selectedPath, selectedType]);
+  }, [applyData, data, editValue, isValueDirty, pushHistory, selectedNode, selectedPath, selectedType, showSuccess, t.notices.updatedValue]);
 
   const handleValueBlur = () => {
     try {
       commitSelectedValueIfChanged();
     } catch {
-      setError(t.errors.updateValue);
+      showError(t.errors.updateValue);
     }
   };
 
@@ -406,6 +455,7 @@ export function JsonEditor() {
     const nextData = addChildToPath(data, selectedPath, newKey, newType);
     pushHistory();
     applyData(nextData);
+    showSuccess(t.notices.addedChild);
   };
 
   const handleRemoveSelected = useCallback(() => {
@@ -416,7 +466,8 @@ export function JsonEditor() {
     setSelectedPath([]);
     setEditValue(formatJsonValue(nextData));
     setIsValueDirty(false);
-  }, [applyData, data, pushHistory, selectedNode, selectedPath]);
+    showSuccess(t.notices.deletedNode);
+  }, [applyData, data, pushHistory, selectedNode, selectedPath, showSuccess, t.notices.deletedNode]);
 
   const handleDuplicateSelected = () => {
     if (!selectedNode) return;
@@ -424,6 +475,7 @@ export function JsonEditor() {
     pushHistory();
     applyData(result.data);
     handleSelectNode(result.path, result.data);
+    showSuccess(t.notices.duplicatedNode);
   };
 
   const resetRenameKey = useCallback(() => {
@@ -439,7 +491,7 @@ export function JsonEditor() {
     const nextKey = renameKey.trim();
     const currentKey = String(selectedPath[selectedPath.length - 1]);
     if (!nextKey) {
-      setError(t.keyCannotBeEmpty);
+      showError(t.keyCannotBeEmpty);
       setRenameKey(currentKey);
       return;
     }
@@ -454,8 +506,9 @@ export function JsonEditor() {
       applyData(nextData);
       setSelectedPath([...selectedPath.slice(0, -1), nextKey]);
       setRenameKey(nextKey);
+      showSuccess(t.notices.renamedKey);
     } catch {
-      setError(t.errors.renameKey);
+      showError(t.errors.renameKey);
       setRenameKey(currentKey);
     }
   };
@@ -466,7 +519,7 @@ export function JsonEditor() {
       try {
         nextSourceData = commitSelectedValueIfChanged();
       } catch {
-        setError(t.errors.updateValue);
+        showError(t.errors.updateValue);
         return;
       }
     }
@@ -480,7 +533,7 @@ export function JsonEditor() {
     } else {
       setRenameKey("");
     }
-  }, [commitSelectedValueIfChanged, data, t.errors.updateValue]);
+  }, [commitSelectedValueIfChanged, data, showError, t.errors.updateValue]);
 
   const handleTreeNodeDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>, path: JsonPath) => {
     event.stopPropagation();
@@ -514,7 +567,7 @@ export function JsonEditor() {
     if (!draggingPath || path.length === 0 || !haveSameParentPath(draggingPath, path)) {
       setTreeDropTarget(null);
       setDraggingPath(null);
-      setError(t.errors.reorderSameParentOnly);
+      showError(t.errors.reorderSameParentOnly);
       return;
     }
 
@@ -529,11 +582,12 @@ export function JsonEditor() {
       pushHistory(baseData, JSON.stringify(baseData, null, 2), selectedPath);
       applyData(result.data);
       handleSelectNode(result.path, result.data);
+      showSuccess(t.notices.reorderedNode);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "";
-      setError(message === "reorderSameParentOnly" ? t.errors.reorderSameParentOnly : t.errors.updateValue);
+      showError(message === "reorderSameParentOnly" ? t.errors.reorderSameParentOnly : t.errors.updateValue);
     }
-  }, [applyData, commitSelectedValueIfChanged, draggingPath, handleSelectNode, pushHistory, selectedPath, t.errors.reorderSameParentOnly, t.errors.updateValue, treeDropTarget]);
+  }, [applyData, commitSelectedValueIfChanged, draggingPath, handleSelectNode, pushHistory, selectedPath, showError, showSuccess, t.errors.reorderSameParentOnly, t.errors.updateValue, t.notices.reorderedNode, treeDropTarget]);
 
   const handleTreeNodeDragEnd = useCallback(() => {
     setDraggingPath(null);
@@ -552,15 +606,15 @@ export function JsonEditor() {
             ? payload.items[0].value
             : payload.items.map((item) => item.value);
       await navigator.clipboard.writeText(JSON.stringify(clipboardValue, null, 2));
-      setError(null);
+      showSuccess(t.notices.copiedNode);
     } catch {
-      setError(t.errors.clipboard);
+      showError(t.errors.clipboard);
     }
-  }, [data, selectedPath, t.errors.clipboard]);
+  }, [data, selectedPath, showError, showSuccess, t.errors.clipboard, t.notices.copiedNode]);
 
   const handlePasteCopiedNode = useCallback(() => {
     if (!copiedNode) {
-      setError(t.errors.nothingToPaste);
+      showError(t.errors.nothingToPaste);
       return;
     }
     try {
@@ -568,38 +622,41 @@ export function JsonEditor() {
       pushHistory();
       applyData(result.data);
       handleSelectNode(result.path, result.data);
+      showSuccess(t.notices.pastedNode);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "";
-      if (message === "pasteRootOnly") setError(t.errors.pasteRootOnly);
-      else if (message === "pasteObjectMemberOnly") setError(t.errors.pasteObjectMemberOnly);
-      else if (message === "pasteArrayItemOnly") setError(t.errors.pasteArrayItemOnly);
-      else setError(t.errors.updateValue);
+      if (message === "pasteRootOnly") showError(t.errors.pasteRootOnly);
+      else if (message === "pasteObjectMemberOnly") showError(t.errors.pasteObjectMemberOnly);
+      else if (message === "pasteArrayItemOnly") showError(t.errors.pasteArrayItemOnly);
+      else showError(t.errors.updateValue);
     }
-  }, [applyData, copiedNode, data, handleSelectNode, pushHistory, selectedPath, t.errors.nothingToPaste, t.errors.pasteArrayItemOnly, t.errors.pasteObjectMemberOnly, t.errors.pasteRootOnly, t.errors.updateValue]);
+  }, [applyData, copiedNode, data, handleSelectNode, pushHistory, selectedPath, showError, showSuccess, t.errors.nothingToPaste, t.errors.pasteArrayItemOnly, t.errors.pasteObjectMemberOnly, t.errors.pasteRootOnly, t.errors.updateValue, t.notices.pastedNode]);
 
   const handleUndo = useCallback(() => {
     const entry = undoStack[undoStack.length - 1];
     if (!entry) {
-      setError(t.errors.nothingToUndo);
+      showError(t.errors.nothingToUndo);
       return;
     }
     setUndoStack((stack) => stack.slice(0, -1));
     setRedoStack((stack) => [...stack, { data, text: jsonText, selectedPath }]);
     applyData(entry.data, entry.text);
     handleSelectNode(entry.selectedPath, entry.data);
-  }, [applyData, data, handleSelectNode, jsonText, selectedPath, t.errors.nothingToUndo, undoStack]);
+    showSuccess(t.notices.undo);
+  }, [applyData, data, handleSelectNode, jsonText, selectedPath, showError, showSuccess, t.errors.nothingToUndo, t.notices.undo, undoStack]);
 
   const handleRedo = useCallback(() => {
     const entry = redoStack[redoStack.length - 1];
     if (!entry) {
-      setError(t.errors.nothingToRedo);
+      showError(t.errors.nothingToRedo);
       return;
     }
     setRedoStack((stack) => stack.slice(0, -1));
     setUndoStack((stack) => [...stack, { data, text: jsonText, selectedPath }]);
     applyData(entry.data, entry.text);
     handleSelectNode(entry.selectedPath, entry.data);
-  }, [applyData, data, handleSelectNode, jsonText, redoStack, selectedPath, t.errors.nothingToRedo]);
+    showSuccess(t.notices.redo);
+  }, [applyData, data, handleSelectNode, jsonText, redoStack, selectedPath, showError, showSuccess, t.errors.nothingToRedo, t.notices.redo]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -853,7 +910,11 @@ export function JsonEditor() {
               </div>
             </div>
 
-            {error ? <div className="card p-3 text-red-700" style={{ background: "#fef2f2", borderColor: "#fecaca" }}>{error}</div> : null}
+            {notice ? (
+              <div className={`notice notice-${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"}>
+                {notice.message}
+              </div>
+            ) : null}
           </div>
         </section>
       </div>
