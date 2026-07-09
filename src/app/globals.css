@@ -179,6 +179,7 @@ textarea {
 }
 
 .tree-node {
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
@@ -190,6 +191,37 @@ textarea {
   border-radius: 0.25rem;
   text-align: left;
   cursor: pointer;
+}
+
+.tree-node[draggable="true"] {
+  cursor: grab;
+}
+
+.tree-node[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.tree-node-dragging {
+  opacity: 0.45;
+}
+
+.tree-node-drop-before::before,
+.tree-node-drop-after::after {
+  background: #2563eb;
+  border-radius: 999px;
+  content: "";
+  height: 2px;
+  left: 0;
+  position: absolute;
+  right: 0;
+}
+
+.tree-node-drop-before::before {
+  top: -2px;
+}
+
+.tree-node-drop-after::after {
+  bottom: -2px;
 }
 
 .tree-node-type {

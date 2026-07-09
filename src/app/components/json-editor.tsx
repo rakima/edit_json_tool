@@ -80,8 +80,8 @@ const translations = {
     applyValue: "Apply value",
     duplicate: "Duplicate",
     delete: "Delete",
-    editNode: "Edit node",
     renameKey: "Rename key",
+    keyCannotBeEmpty: "Key cannot be empty.",
     addChild: "Add child",
     key: "Key",
     addChildButton: "Add child to selected node",
@@ -136,8 +136,8 @@ const translations = {
     applyValue: "値を適用",
     duplicate: "複製",
     delete: "削除",
-    editNode: "ノードを編集",
     renameKey: "キー名を変更",
+    keyCannotBeEmpty: "キー名は空にできません。",
     addChild: "子要素を追加",
     key: "キー",
     addChildButton: "選択したノードに子要素を追加",
@@ -264,6 +264,9 @@ export function JsonEditor() {
 
   const selectedType = selectedNode?.type ?? "object";
   const selectedTypeLabel = getTypeLabel(selectedType, language);
+  const selectedParentValue = selectedPath.length > 0 ? getValueAtPath(data, selectedPath.slice(0, -1)) : undefined;
+  const canRenameSelectedKey = selectedPath.length > 0 && !!selectedParentValue && typeof selectedParentValue === "object" && !Array.isArray(selectedParentValue);
+  const selectedKey = selectedPath.length > 0 ? selectedPath[selectedPath.length - 1] : t.root;
 
   const pushHistory = useCallback((historyData = data, historyText = jsonText, historyPath = selectedPath) => {
     setUndoStack((stack) => [...stack, { data: historyData, text: historyText, selectedPath: historyPath }]);
@@ -431,16 +434,37 @@ export function JsonEditor() {
     handleSelectNode(result.path, result.data);
   };
 
-  const handleRenameKey = () => {
-    if (!selectedNode || selectedPath.length < 1 || !renameKey.trim()) return;
+  const resetRenameKey = useCallback(() => {
+    setRenameKey(selectedPath.length > 0 ? String(selectedPath[selectedPath.length - 1]) : "");
+  }, [selectedPath]);
+
+  const handleRenameKeyBlur = () => {
+    if (!selectedNode || selectedPath.length < 1 || !canRenameSelectedKey) {
+      resetRenameKey();
+      return;
+    }
+
+    const nextKey = renameKey.trim();
+    const currentKey = String(selectedPath[selectedPath.length - 1]);
+    if (!nextKey) {
+      setError(t.keyCannotBeEmpty);
+      setRenameKey(currentKey);
+      return;
+    }
+    if (nextKey === currentKey) {
+      setRenameKey(currentKey);
+      return;
+    }
+
     try {
-      const nextData = renamePropertyAtPath(data, selectedPath, renameKey.trim());
+      const nextData = renamePropertyAtPath(data, selectedPath, nextKey);
       pushHistory();
       applyData(nextData);
-      setSelectedPath([...selectedPath.slice(0, -1), renameKey.trim()]);
-      setRenameKey("");
+      setSelectedPath([...selectedPath.slice(0, -1), nextKey]);
+      setRenameKey(nextKey);
     } catch {
       setError(t.errors.renameKey);
+      setRenameKey(currentKey);
     }
   };
 
@@ -769,6 +793,16 @@ export function JsonEditor() {
                   </div>
                 </div>
                 <div>
+                  <label className="text-sm font-medium text-slate-700">{t.key}</label>
+                  <input
+                    value={canRenameSelectedKey ? renameKey : selectedKey}
+                    onChange={(event) => setRenameKey(event.target.value)}
+                    onBlur={handleRenameKeyBlur}
+                    disabled={!canRenameSelectedKey}
+                    className="input-field mt-1"
+                  />
+                </div>
+                <div>
                   <label className="text-sm font-medium text-slate-700">{t.type}</label>
                   <div className="mt-1 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{selectedTypeLabel}</div>
                 </div>
@@ -802,19 +836,6 @@ export function JsonEditor() {
                     {t.delete}
                   </button>
                 </div>
-              </div>
-            </div>
-
-            <div className="card p-4">
-              <h2 className="text-lg font-semibold">{t.editNode}</h2>
-              <div className="mt-3" style={{ display: "grid", gap: "0.75rem" }}>
-                <div>
-                  <label className="text-sm font-medium text-slate-700">{t.renameKey}</label>
-                  <input value={renameKey} onChange={(event) => setRenameKey(event.target.value)} className="input-field mt-1" />
-                </div>
-                <button type="button" onClick={handleRenameKey} className="button-secondary">
-                  {t.renameKey}
-                </button>
               </div>
             </div>
 
