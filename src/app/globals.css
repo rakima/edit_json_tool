@@ -179,7 +179,9 @@ textarea {
 }
 
 .tree-node {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
   width: 100%;
   border: 0;
   background: white;
@@ -190,9 +192,36 @@ textarea {
   cursor: pointer;
 }
 
+.tree-node-type {
+  color: #64748b;
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tree-node-label {
+  flex: 0 0 auto;
+}
+
+.tree-node-value {
+  color: #475569;
+  flex: 1 1 auto;
+  font-family: var(--font-geist-mono), Consolas, monospace;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tree-node-active {
   background: #2563eb;
   color: white;
+}
+
+.tree-node-active .tree-node-type,
+.tree-node-active .tree-node-value {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .tree-children {

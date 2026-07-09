@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import {
   addChildToPath,
   buildClipboardPayload,
@@ -23,6 +23,9 @@ import {
 } from "@/app/lib/json-model";
 
 type Language = "en" | "ja";
+
+const LANGUAGE_STORAGE_KEY = "json-editor-language";
+const LANGUAGE_CHANGE_EVENT = "json-editor-language-change";
 
 type HistoryEntry = {
   data: JsonValue;
@@ -167,6 +170,31 @@ function isTextEditingTarget(target: EventTarget | null) {
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
+function formatTreeNodeValue(value: JsonValue, type: JsonNodeType) {
+  if (type === "object" || type === "array") return "";
+  const text = type === "string" ? `"${String(value)}"` : formatJsonValue(value);
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function getStoredLanguage(): Language {
+  if (typeof window === "undefined") return "en";
+  const savedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  return savedLanguage === "en" || savedLanguage === "ja" ? savedLanguage : "en";
+}
+
+function getServerLanguageSnapshot(): Language {
+  return "en";
+}
+
+function subscribeToLanguageChanges(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(LANGUAGE_CHANGE_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(LANGUAGE_CHANGE_EVENT, onStoreChange);
+  };
+}
+
 export function JsonEditor() {
   const [jsonText, setJsonText] = useState(JSON.stringify(SAMPLE_JSON, null, 2));
   const [data, setData] = useState<JsonValue>(SAMPLE_JSON);
@@ -176,12 +204,9 @@ export function JsonEditor() {
   const [newKey, setNewKey] = useState("newField");
   const [newType, setNewType] = useState<JsonNodeType>("string");
   const [editValue, setEditValue] = useState("");
+  const [isValueDirty, setIsValueDirty] = useState(false);
   const [renameKey, setRenameKey] = useState("");
-  const [language, setLanguage] = useState<Language>(() => {
-    if (typeof window === "undefined") return "en";
-    const savedLanguage = window.localStorage.getItem("json-editor-language");
-    return savedLanguage === "en" || savedLanguage === "ja" ? savedLanguage : "en";
-  });
+  const language = useSyncExternalStore(subscribeToLanguageChanges, getStoredLanguage, getServerLanguageSnapshot);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [copiedNode, setCopiedNode] = useState<ClipboardPayload | null>(null);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
@@ -189,9 +214,10 @@ export function JsonEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const valueInputRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    window.localStorage.setItem("json-editor-language", language);
-  }, [language]);
+  const setLanguage = useCallback((nextLanguage: Language) => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
+    window.dispatchEvent(new Event(LANGUAGE_CHANGE_EVENT));
+  }, []);
 
   const t = translations[language];
   const tree = useMemo(() => buildJsonTree(data), [data]);
@@ -234,6 +260,8 @@ export function JsonEditor() {
       pushHistory();
       applyData(parsed, jsonText);
       setSelectedPath([]);
+      setEditValue(formatJsonValue(parsed));
+      setIsValueDirty(false);
       setActiveTab("tree");
     } catch {
       setError(t.errors.invalidJson);
@@ -245,6 +273,7 @@ export function JsonEditor() {
     applyData({}, JSON.stringify({}, null, 2));
     setSelectedPath([]);
     setEditValue(formatJsonValue({}));
+    setIsValueDirty(false);
     setRenameKey("");
     setActiveTab("tree");
   }, [applyData, pushHistory]);
@@ -258,6 +287,8 @@ export function JsonEditor() {
       pushHistory();
       applyData(parsed, text);
       setSelectedPath([]);
+      setEditValue(formatJsonValue(parsed));
+      setIsValueDirty(false);
       setActiveTab("tree");
     } catch {
       setError(t.errors.invalidJson);
@@ -295,6 +326,8 @@ export function JsonEditor() {
       pushHistory();
       applyData(parsed, text);
       setSelectedPath([]);
+      setEditValue(formatJsonValue(parsed));
+      setIsValueDirty(false);
       setActiveTab("tree");
     } catch {
       setError(t.errors.invalidJson);
@@ -332,10 +365,24 @@ export function JsonEditor() {
       pushHistory();
       applyData(nextData);
       setEditValue(formatJsonValue(nextValue));
+      setIsValueDirty(false);
     } catch {
       setError(t.errors.updateValue);
     }
   };
+
+  const commitSelectedValueIfChanged = useCallback(() => {
+    if (!selectedNode || !isValueDirty) return data;
+    if (editValue === formatJsonValue(selectedNode.value)) return data;
+
+    const nextValue = parseJsonValueText(editValue, selectedType);
+    const nextData = updateValueAtPath(data, selectedPath, nextValue);
+    pushHistory();
+    applyData(nextData);
+    setEditValue(formatJsonValue(nextValue));
+    setIsValueDirty(false);
+    return nextData;
+  }, [applyData, data, editValue, isValueDirty, pushHistory, selectedNode, selectedPath, selectedType]);
 
   const handleAddChild = () => {
     if (!selectedNode) return;
@@ -350,6 +397,8 @@ export function JsonEditor() {
     pushHistory();
     applyData(nextData);
     setSelectedPath([]);
+    setEditValue(formatJsonValue(nextData));
+    setIsValueDirty(false);
   }, [applyData, data, pushHistory, selectedNode, selectedPath]);
 
   const handleDuplicateSelected = () => {
@@ -373,16 +422,27 @@ export function JsonEditor() {
     }
   };
 
-  const handleSelectNode = useCallback((path: JsonPath, sourceData: JsonValue = data) => {
+  const handleSelectNode = useCallback((path: JsonPath, sourceData: JsonValue = data, commitPendingValue = false) => {
+    let nextSourceData = sourceData;
+    if (commitPendingValue) {
+      try {
+        nextSourceData = commitSelectedValueIfChanged();
+      } catch {
+        setError(t.errors.updateValue);
+        return;
+      }
+    }
+
     setSelectedPath(path);
-    const value = getValueAtPath(sourceData, path) ?? null;
+    const value = getValueAtPath(nextSourceData, path) ?? null;
     setEditValue(formatJsonValue(value));
+    setIsValueDirty(false);
     if (path.length > 0) {
       setRenameKey(String(path[path.length - 1]));
     } else {
       setRenameKey("");
     }
-  }, [data]);
+  }, [commitSelectedValueIfChanged, data, t.errors.updateValue]);
 
   const handleCopySelectedNode = useCallback(async () => {
     const payload = buildClipboardPayload(data, selectedPath);
@@ -513,15 +573,17 @@ export function JsonEditor() {
   const renderNode = (node: JsonTreeNode): ReactNode => {
     const isSelected = selectedPath.join(".") === node.id;
     const label = node.key === "root" ? t.root : node.key;
+    const valuePreview = formatTreeNodeValue(node.value, node.type);
     return (
       <div key={node.id} className="ml-2">
         <button
           type="button"
           className={`tree-node ${isSelected ? "tree-node-active" : ""}`}
-          onClick={() => handleSelectNode(node.id === "root" ? [] : node.id.split("."))}
+          onClick={() => handleSelectNode(node.id === "root" ? [] : node.id.split("."), data, true)}
         >
-          <span className="text-xs font-semibold uppercase text-slate-500">{node.type}</span>
-          <span className="ml-2">{label}</span>
+          <span className="tree-node-type">{node.type}</span>
+          <span className="tree-node-label">{label}</span>
+          {valuePreview ? <span className="tree-node-value">{valuePreview}</span> : null}
         </button>
         {node.children ? <div className="tree-children">{node.children.map((child) => renderNode(child))}</div> : null}
       </div>
@@ -625,7 +687,16 @@ export function JsonEditor() {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700">{t.value}</label>
-                  <textarea ref={valueInputRef} value={editValue} onChange={(event) => setEditValue(event.target.value)} className="input-field mt-1" style={{ minHeight: "6rem", fontFamily: "monospace" }} />
+                  <textarea
+                    ref={valueInputRef}
+                    value={editValue}
+                    onChange={(event) => {
+                      setEditValue(event.target.value);
+                      setIsValueDirty(true);
+                    }}
+                    className="input-field mt-1"
+                    style={{ minHeight: "6rem", fontFamily: "monospace" }}
+                  />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={handleApplyValue} className="button-primary">
