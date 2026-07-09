@@ -75,6 +75,7 @@ const translations = {
       download: "Unable to download JSON",
       updateValue: "Unable to update value",
       renameKey: "Unable to rename key",
+      notJsonFile: "Please drop a JSON file",
     },
   },
   ja: {
@@ -119,6 +120,7 @@ const translations = {
       download: "JSON をダウンロードできませんでした",
       updateValue: "値を更新できませんでした",
       renameKey: "キー名を変更できませんでした",
+      notJsonFile: "JSON ファイルをドロップしてください",
     },
   },
 } as const;
@@ -142,6 +144,7 @@ export function JsonEditor() {
   const [editValue, setEditValue] = useState("");
   const [renameKey, setRenameKey] = useState("");
   const [language, setLanguage] = useState<Language>("en");
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   useEffect(() => {
     const savedLanguage = window.localStorage.getItem("json-editor-language");
@@ -198,6 +201,42 @@ export function JsonEditor() {
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    try {
+      const text = await readFromFile(file);
+      const parsed = JSON.parse(text);
+      applyData(parsed, text);
+      setSelectedPath([]);
+      setActiveTab("tree");
+    } catch {
+      setError(t.errors.invalidJson);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget === event.target) {
+      setIsDraggingOver(false);
+    }
+  };
+
+  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingOver(false);
+    const files = event.dataTransfer.files;
+    if (files.length === 0) return;
+    const file = files[0];
+    if (!file.type.includes("json") && !file.name.endsWith(".json")) {
+      setError(t.errors.notJsonFile);
+      return;
+    }
     try {
       const text = await readFromFile(file);
       const parsed = JSON.parse(text);
@@ -342,7 +381,18 @@ export function JsonEditor() {
         </header>
 
         <section className="grid grid-2">
-          <div className="card p-4">
+          <div
+            className="card p-4"
+            style={{
+              backgroundColor: isDraggingOver ? "#f0f9ff" : undefined,
+              borderColor: isDraggingOver ? "#3b82f6" : undefined,
+              borderWidth: isDraggingOver ? "2px" : undefined,
+              transition: "all 0.2s ease",
+            }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             <div className="flex justify-between items-center" style={{ marginBottom: "0.75rem" }}>
               <div>
                 <h2 className="text-lg font-semibold">{t.jsonInput}</h2>
