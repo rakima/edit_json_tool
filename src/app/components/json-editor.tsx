@@ -60,17 +60,16 @@ const translations = {
     title: "Browser-based JSON editor",
     subtitle: "Load JSON from a file or paste it directly, edit the structure, and export a formatted document.",
     loadFile: "Load file",
-    applyJson: "Apply JSON",
     downloadJson: "Download JSON",
     copyJson: "Copy JSON",
     copyNode: "Copy node",
     undo: "Undo",
     redo: "Redo",
     pasteNode: "Paste node",
-    jsonInput: "JSON input",
-    jsonInputHint: "Paste text or load a file, then apply it to the editor.",
+    jsonInput: "JSON preview",
+    jsonInputHint: "Preview the current JSON generated from the tree editor.",
     treeView: "Tree view",
-    textView: "Text view",
+    textView: "JSON preview",
     selectedNode: "Selected node",
     selectedNodeHint: "Inspect or modify the currently chosen value.",
     path: "Path",
@@ -116,17 +115,16 @@ const translations = {
     title: "ブラウザ版 JSON エディタ",
     subtitle: "JSON を読み込んで編集し、整形した内容をそのまま書き出せます。",
     loadFile: "ファイルを読み込む",
-    applyJson: "JSON を適用",
     downloadJson: "JSON をダウンロード",
     copyJson: "JSON をコピー",
     copyNode: "ノードをコピー",
     undo: "元に戻す",
     redo: "やり直し",
     pasteNode: "ノードを貼り付け",
-    jsonInput: "JSON 入力",
-    jsonInputHint: "テキストを貼り付けるかファイルを読み込んで、エディタに反映してください。",
+    jsonInput: "JSON プレビュー",
+    jsonInputHint: "ツリー編集から生成された現在の JSON を確認できます。",
     treeView: "ツリー表示",
-    textView: "テキスト表示",
+    textView: "JSON プレビュー",
     selectedNode: "選択中のノード",
     selectedNodeHint: "選択した値を確認・編集できます。",
     path: "パス",
@@ -278,20 +276,6 @@ export function JsonEditor() {
     setJsonText(nextText ?? JSON.stringify(nextData, null, 2));
     setError(null);
   }, []);
-
-  const handleLoadJson = useCallback(() => {
-    try {
-      const parsed = JSON.parse(jsonText);
-      pushHistory();
-      applyData(parsed, jsonText);
-      setSelectedPath([]);
-      setEditValue(formatJsonValue(parsed));
-      setIsValueDirty(false);
-      setActiveTab("tree");
-    } catch {
-      setError(t.errors.invalidJson);
-    }
-  }, [applyData, jsonText, pushHistory, t.errors.invalidJson]);
 
   const handleNewFile = useCallback(() => {
     pushHistory();
@@ -638,11 +622,6 @@ export function JsonEditor() {
         handleDownload();
         return;
       }
-      if (event.key === "F5") {
-        event.preventDefault();
-        handleLoadJson();
-        return;
-      }
       if (event.key === "F2") {
         event.preventDefault();
         valueInputRef.current?.focus();
@@ -674,7 +653,6 @@ export function JsonEditor() {
   }, [
     handleCopySelectedNode,
     handleDownload,
-    handleLoadJson,
     handleNewFile,
     handlePasteCopiedNode,
     handleRedo,
@@ -734,20 +712,17 @@ export function JsonEditor() {
                 {t.loadFile}
                 <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={handleFileSelect} style={{ marginLeft: "0.5rem" }} />
               </label>
-              <button type="button" onClick={handleLoadJson} className="button-primary">
-                {t.applyJson}
-              </button>
               <button type="button" onClick={handleDownload} className="button-secondary">
                 {t.downloadJson}
               </button>
               <button type="button" onClick={handleCopy} className="button-secondary">
                 {t.copyJson}
               </button>
-              <button type="button" onClick={handleUndo} className="button-secondary">
-                {t.undo}
+              <button type="button" onClick={handleUndo} className="button-secondary button-icon" aria-label={t.undo} title={t.undo}>
+                ←
               </button>
-              <button type="button" onClick={handleRedo} className="button-secondary">
-                {t.redo}
+              <button type="button" onClick={handleRedo} className="button-secondary button-icon" aria-label={t.redo} title={t.redo}>
+                →
               </button>
             </div>
           </div>
@@ -785,7 +760,7 @@ export function JsonEditor() {
                 {renderNode(tree)}
               </div>
             ) : (
-              <textarea value={jsonText} onChange={(event) => setJsonText(event.target.value)} className="input-field" style={{ minHeight: "480px", fontFamily: "monospace" }} />
+              <textarea value={jsonText} readOnly className="input-field" style={{ minHeight: "480px", fontFamily: "monospace" }} />
             )}
           </div>
 
